@@ -1,0 +1,425 @@
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { RefreshCw, Plus, ShieldAlert, Zap, FolderLock, Shield, Activity } from 'lucide-react'
+import { api } from '../api/client'
+import CountUp from '../components/CountUp'
+
+// ── Radar Canvas ──────────────────────────────────────────────────────────────
+function RadarCanvas({ threats = [] }) {
+  const canvasRef = useRef(null)
+  const angleRef  = useRef(0)
+  const dots      = useRef([])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const cx = canvas.width / 2, cy = canvas.height / 2, r = cx - 10
+    dots.current = threats.slice(0, 20).map((t, i) => {
+      const a  = (i / Math.max(threats.length, 1)) * Math.PI * 2
+      const dr = (0.3 + Math.random() * 0.6) * r
+      return { x: cx + Math.cos(a) * dr, y: cy + Math.sin(a) * dr,
+               score: t.threat_score || 0, label: t.domain || t.handle || '?' }
+    })
+    if (!dots.current.length) {
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2, dr = (0.3 + Math.random() * 0.5) * r
+        dots.current.push({ x: cx + Math.cos(a) * dr, y: cy + Math.sin(a) * dr, score: Math.random() * 10, label: '?' })
+      }
+    }
+  }, [threats])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let raf
+
+    const draw = () => {
+      const w = canvas.width, h = canvas.height
+      const cx = w / 2, cy = h / 2, r = cx - 10
+
+      ctx.clearRect(0, 0, w, h)
+      ctx.fillStyle = '#08080f'
+      ctx.fillRect(0, 0, w, h)
+
+      // Rings
+      for (let i = 1; i <= 4; i++) {
+        ctx.beginPath()
+        ctx.arc(cx, cy, (r / 4) * i, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(124,58,237,0.15)'
+        ctx.lineWidth = 1
+        ctx.stroke()
+      }
+
+      // Crosshairs
+      ctx.strokeStyle = 'rgba(124,58,237,0.1)'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke()
+
+      // Sweep
+      angleRef.current = (angleRef.current + 0.012) % (Math.PI * 2)
+      const sweep = angleRef.current
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate(sweep)
+      const g = ctx.createLinearGradient(0, 0, r, 0)
+      g.addColorStop(0, 'rgba(124,58,237,0.5)')
+      g.addColorStop(0.3, 'rgba(124,58,237,0.15)')
+      g.addColorStop(1, 'rgba(124,58,237,0)')
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.moveTo(0, 0)
+      ctx.arc(0, 0, r, -0.45, 0)
+      ctx.closePath()
+      ctx.fill()
+
+      ctx.strokeStyle = 'rgba(168,85,247,0.8)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(r, 0); ctx.stroke()
+      ctx.restore()
+
+      // Dots
+      dots.current.forEach(d => {
+        const score = d.score || 0
+        const color = score >= 8 ? '#ef4444' : score >= 5 ? '#f59e0b' : '#10b981'
+        const glow  = score >= 8 ? 'rgba(239,68,68,0.4)' : score >= 5 ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'
+        const pulse = Math.sin(Date.now() * 0.003 + d.x) * 0.5 + 0.5
+        const size  = 3 + score * 0.3
+
+        ctx.beginPath()
+        ctx.arc(d.x, d.y, size + pulse * 2, 0, Math.PI * 2)
+        ctx.fillStyle = glow
+        ctx.fill()
+        ctx.beginPath()
+        ctx.arc(d.x, d.y, size, 0, Math.PI * 2)
+        ctx.fillStyle = color
+        ctx.fill()
+      })
+
+      ctx.beginPath()
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+      ctx.fillStyle = '#a855f7'
+      ctx.fill()
+
+      raf = requestAnimationFrame(draw)
+    }
+
+    draw()
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={260} height={260}
+      style={{ borderRadius: '50%', display: 'block' }}
+    />
+  )
+}
+
+// ── Metric Card ───────────────────────────────────────────────────────────────
+function MetricCard({ label, value, sub, color = '#7c3aed', icon: Icon }) {
+  return (
+    <div className="card p-5" style={{
+      borderTop: `2px solid ${color}`,
+      display: 'flex', flexDirection: 'column', gap: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ color: '#5c5880', fontSize: 10, fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</span>
+        {Icon && <Icon size={18} color={color} style={{ opacity: 0.8 }} />}
+      </div>
+      <div style={{ color, fontSize: 34, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', lineHeight: 1, textShadow: `0 0 20px ${color}40` }}>
+        <CountUp value={typeof value === 'number' ? value : 0} />
+      </div>
+      {sub && <div style={{ color: '#5c5880', fontSize: 11 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// ── Protection Score Ring ──────────────────────────────────────────────────────
+function ProtectionRing({ score }) {
+  const radius = 54
+  const circ   = 2 * Math.PI * radius
+  const dash   = (score / 100) * circ
+  const color  = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444'
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <svg width={140} height={140} viewBox="0 0 140 140">
+        <circle cx={70} cy={70} r={radius} fill="none" stroke="#1a1a2e" strokeWidth={12} />
+        <circle cx={70} cy={70} r={radius} fill="none" stroke={color} strokeWidth={12}
+          strokeDasharray={`${dash} ${circ}`}
+          strokeLinecap="round"
+          transform="rotate(-90 70 70)"
+          style={{ transition: 'stroke-dasharray 1.2s ease-out', filter: `drop-shadow(0 0 6px ${color})` }}
+        />
+        <text x={70} y={65} textAnchor="middle" fill={color} fontSize={26} fontWeight={700} fontFamily="JetBrains Mono, monospace">
+          <CountUp value={score} />
+        </text>
+        <text x={70} y={83} textAnchor="middle" fill="#5c5880" fontSize={10} fontFamily="JetBrains Mono, monospace">
+          /100
+        </text>
+      </svg>
+      <div style={{ fontSize: 11, color: '#5c5880', textAlign: 'center', fontFamily: 'JetBrains Mono, monospace' }}>
+        PROTECTION SCORE
+      </div>
+      <div style={{ fontSize: 12, color, fontWeight: 600 }}>
+        {score >= 80 ? 'Excellent' : score >= 50 ? 'At Risk' : 'Critical'}
+      </div>
+    </div>
+  )
+}
+
+// ── Activity Feed ─────────────────────────────────────────────────────────────
+function ActivityFeed({ events }) {
+  const ref = useRef(null)
+  useEffect(() => { ref.current?.scrollTo({ top: 9999, behavior: 'smooth' }) }, [events])
+  return (
+    <div ref={ref} className="terminal" style={{ height: 200, overflowY: 'auto' }}>
+      {events.length === 0 && <div style={{ color: '#5c5880' }}>{'> '}Waiting for activity...</div>}
+      {events.map((e, i) => (
+        <div key={i} style={{ color: e.color || '#a855f7' }}>
+          <span style={{ color: '#2a2a4a' }}>[{e.time}] </span>
+          <span style={{ color: '#7c3aed' }}>&gt; </span>
+          {e.text}
+        </div>
+      ))}
+      <div style={{ color: '#5c5880' }} className="cursor" />
+    </div>
+  )
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [scans,   setScans]   = useState([])
+  const [stats,   setStats]   = useState({})
+  const [loading, setLoading] = useState(true)
+  const [events,  setEvents]  = useState(() => {
+    try { return JSON.parse(localStorage.getItem('warden_activity') || '[]').slice(-50) } catch { return [] }
+  })
+  const navigate = useNavigate()
+
+  const addEvent = useCallback((text, color = '#a855f7') => {
+    const e = { text, color, time: new Date().toLocaleTimeString('en-IN', { hour12: false }) }
+    setEvents(prev => {
+      const next = [...prev.slice(-49), e]
+      localStorage.setItem('warden_activity', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const load = useCallback(async () => {
+    try {
+      const [scanData, statsData] = await Promise.all([
+        api.listScans().catch(() => ({ scans: [] })),
+        fetch('http://localhost:8001/api/stats').then(r => r.json()).catch(() => ({})),
+      ])
+      setScans(scanData.scans || [])
+      setStats(statsData)
+    } catch (e) {
+      addEvent(`API error: ${e.message}`, '#ef4444')
+    } finally {
+      setLoading(false)
+    }
+  }, [addEvent])
+
+  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [load])
+
+  useEffect(() => {
+    if (!scans.length || events.length > 5) return
+    scans.slice(0, 3).forEach(s => {
+      const threats = s.results?.threats_found || s.results?.total_threats || 0
+      if (s.status === 'complete')
+        addEvent(`SCAN COMPLETE — ${s.target} — ${threats} threats`, threats > 0 ? '#f59e0b' : '#10b981')
+    })
+  }, [scans])
+
+  const chartData = scans.slice(0, 10).reverse().map((s, i) => {
+    const r   = s.results || {}
+    const dr  = r.domain_results || {}
+    const sr  = r.social_results || {}
+    const all = [...(dr.threats || []), ...(sr.threats || []), ...(r.threats || [])]
+    return {
+      name: `S${i + 1}`,
+      high:   all.filter(t => t.threat_score >= 8).length,
+      medium: all.filter(t => t.threat_score >= 5 && t.threat_score < 8).length,
+      low:    all.filter(t => t.threat_score < 5).length,
+    }
+  })
+
+  const allThreats = scans.flatMap(s => {
+    const r = s.results || {}
+    return [...(r.threats || []), ...(r.domain_results?.threats || []), ...(r.social_results?.threats || [])]
+  })
+
+  const score = stats.protection_score ?? 100
+
+  return (
+    <div className="page-enter dot-grid min-h-screen" style={{ padding: 24 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <h1 style={{
+            fontFamily: 'JetBrains Mono, monospace', fontSize: 20, fontWeight: 700,
+            margin: 0, color: '#f1f0ff', letterSpacing: '0.05em',
+          }}>
+            THREAT OVERVIEW
+          </h1>
+          <p style={{ color: '#5c5880', fontSize: 12, fontFamily: 'JetBrains Mono, monospace', margin: '4px 0 0' }}>
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn-outline" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button className="btn-primary" onClick={() => navigate('/scan')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} /> New Scan
+          </button>
+        </div>
+      </div>
+
+      {/* Top row: score + metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Score ring */}
+        <div className="card p-5" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 160 }}>
+          <ProtectionRing score={score} />
+        </div>
+
+        {/* Metric cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }} className="mobile-stack">
+          <MetricCard label="Threats Total"   value={stats.threats_total || 0}     color="#ef4444" icon={ShieldAlert} sub={`${stats.threats_high || 0} high risk`} />
+          <MetricCard label="Takedowns Filed" value={stats.takedowns_filed || 0}   color="#7c3aed" icon={Zap}         sub="evidence built" />
+          <MetricCard label="Platforms"       value={7}                            color="#f59e0b" icon={Activity}     sub="monitored" />
+          <MetricCard label="Evidence Pkgs"   value={stats.evidence_packages || 0} color="#10b981" icon={FolderLock}   sub="packages ready" />
+        </div>
+      </div>
+
+      {/* Middle row: radar + chart + feed */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 20 }} className="mobile-stack">
+        {/* Radar */}
+        <div className="card p-5" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.15em', textTransform: 'uppercase', margin: 0, width: '100%', textAlign: 'center' }}>
+            THREAT RADAR
+          </h2>
+          <RadarCanvas threats={allThreats} />
+          <div style={{ display: 'flex', gap: 16, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}>
+            <span style={{ color: '#ef4444' }}>● HIGH</span>
+            <span style={{ color: '#f59e0b' }}>● MED</span>
+            <span style={{ color: '#10b981' }}>● LOW</span>
+          </div>
+        </div>
+
+        {/* Trend chart */}
+        <div className="card p-5">
+          <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 16px' }}>
+            THREAT TREND
+          </h2>
+          {chartData.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 180, color: '#5c5880', fontSize: 12 }}>
+              No scan data yet
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="gH" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#ef4444" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#7c3aed" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#7c3aed" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,42,74,0.8)" />
+                <XAxis dataKey="name" tick={{ fill: '#5c5880', fontSize: 10 }} />
+                <YAxis tick={{ fill: '#5c5880', fontSize: 10 }} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: '#13131f', border: '1px solid #2a2a4a', borderRadius: 8, fontSize: 11, color: '#f1f0ff' }} />
+                <Area type="monotone" dataKey="high"   stroke="#ef4444" fill="url(#gH)" strokeWidth={2} name="High" />
+                <Area type="monotone" dataKey="medium" stroke="#f59e0b" fill="none"    strokeWidth={1.5} strokeDasharray="4 2" name="Medium" />
+                <Area type="monotone" dataKey="low"    stroke="#7c3aed" fill="url(#gP)" strokeWidth={2} name="Low" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Activity feed */}
+        <div className="card p-5">
+          <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>
+            LIVE ACTIVITY
+          </h2>
+          <ActivityFeed events={events} />
+        </div>
+      </div>
+
+      {/* Recent scans table */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #2a2a4a' }}>
+          <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.12em', textTransform: 'uppercase', margin: 0 }}>
+            RECENT SCANS
+          </h2>
+          <span className="badge badge-purple">{scans.length} total</span>
+        </div>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>Loading...</div>
+        ) : scans.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#5c5880', fontSize: 13 }}>
+            No scans yet —{' '}
+            <button className="btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => navigate('/scan')}>
+              launch first scan
+            </button>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="cyber-table">
+              <thead>
+                <tr>
+                  <th>Target</th><th>Type</th><th>Status</th>
+                  <th>Threats</th><th className="hidden md:table-cell">Started</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scans.slice(0, 8).map(s => {
+                  const threats = s.results?.threats_found ?? (s.results?.total_threats ?? 0)
+                  const statusColor = s.status === 'complete' ? '#10b981' : s.status === 'running' ? '#a855f7' : '#ef4444'
+                  return (
+                    <tr key={s.scan_id}>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f1f0ff', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                        {s.target}
+                      </td>
+                      <td>
+                        <span className="badge badge-purple" style={{ fontSize: 10 }}>{s.type}</span>
+                      </td>
+                      <td>
+                        <span style={{
+                          padding: '2px 10px', borderRadius: 100, fontSize: 11,
+                          fontFamily: 'JetBrains Mono, monospace', fontWeight: 600,
+                          background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}44`,
+                        }}>
+                          {s.status === 'running' && '● '}{s.status}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', color: threats > 0 ? '#ef4444' : '#10b981', fontSize: 13 }}>
+                        {s.status === 'complete' ? threats : '—'}
+                      </td>
+                      <td className="hidden md:table-cell" style={{ color: '#5c5880', fontSize: 11 }}>
+                        {new Date(s.started_at).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' })}
+                      </td>
+                      <td>
+                        <button className="btn-outline" style={{ fontSize: 11 }} onClick={() => navigate('/threats')}>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

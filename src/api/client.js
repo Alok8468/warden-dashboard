@@ -1,6 +1,6 @@
 import { getToken, clearToken } from '../auth'
 
-const BASE = 'http://localhost:8001'
+const BASE = 'http://localhost:8000'
 
 async function request(method, path, body) {
   const token = getToken()
@@ -29,7 +29,7 @@ async function request(method, path, body) {
 export const api = {
   // Auth
   login:    (email, password)                    => request('POST', '/auth/login',    { email, password }),
-  register: (email, password, name, brand_name)  => request('POST', '/auth/register', { email, password, name, brand_name }),
+  register: (email, password, full_name)  => request('POST', '/auth/signup', { email, password, full_name }),
   me:       ()                                   => request('GET',  '/auth/me'),
 
   // Brands

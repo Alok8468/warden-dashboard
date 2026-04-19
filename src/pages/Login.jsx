@@ -2,15 +2,30 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mail, Lock, Eye, EyeOff, Shield, Zap } from 'lucide-react'
-import { setToken } from '../auth'
+import { GoogleLogin } from '@react-oauth/google'
+import { setToken, setUser } from '../auth'
 
-const BASE = 'http://localhost:8001'
+const BASE = 'http://localhost:8000'
 
 const STATS = [
   { label: 'Brands Protected',    value: '2,400+' },
   { label: 'Threats Neutralized', value: '18,000+' },
   { label: 'Takedowns Filed',     value: '3,200+' },
 ]
+
+function friendlyError(err) {
+  const msg = err.message || ''
+  if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('load failed')) {
+    return 'Cannot connect to server. Make sure the backend is running on port 8000.'
+  }
+  if (msg.includes('401') || msg.toLowerCase().includes('invalid credentials')) {
+    return 'Invalid email or password.'
+  }
+  if (msg.includes('500')) {
+    return 'Server error. Please try again.'
+  }
+  return msg || 'Login failed. Please try again.'
+}
 
 export default function Login() {
   const [email, setEmail]       = useState('')
@@ -20,23 +35,49 @@ export default function Login() {
   const [error, setError]       = useState('')
   const navigate = useNavigate()
 
-  const fillDemo = () => { setEmail('demo@warden.ai'); setPassword('demo123') }
-
-  const submit = async (e) => {
-    e.preventDefault()
+  const doLogin = async (emailVal, passwordVal) => {
     setLoading(true); setError('')
     try {
       const res = await fetch(`${BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: emailVal, password: passwordVal }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Login failed')
+      if (!res.ok) throw new Error(data.detail || `${res.status}`)
       setToken(data.access_token)
+      if (data.user) setUser(data.user)
       navigate('/dashboard')
     } catch (err) {
-      setError(err.message)
+      setError(friendlyError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submit = (e) => { e.preventDefault(); doLogin(email, password) }
+
+  const fillDemo = () => {
+    setEmail('demo@warden.ai')
+    setPassword('demo123')
+    doLogin('demo@warden.ai', 'demo123')
+  }
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch(`${BASE}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: credentialResponse.credential }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `${res.status}`)
+      setToken(data.access_token)
+      if (data.user) setUser(data.user)
+      navigate('/dashboard')
+    } catch (err) {
+      setError(friendlyError(err))
     } finally {
       setLoading(false)
     }
@@ -57,14 +98,11 @@ export default function Login() {
       }}
         className="hidden md:flex"
       >
-        {/* Grid bg */}
         <div style={{
           position: 'absolute', inset: 0, opacity: 0.4,
           backgroundImage: 'linear-gradient(rgba(124,58,237,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(124,58,237,0.08) 1px, transparent 1px)',
           backgroundSize: '40px 40px',
         }} />
-
-        {/* Floating particles */}
         {[...Array(8)].map((_, i) => (
           <div key={i} style={{
             position: 'absolute',
@@ -77,8 +115,6 @@ export default function Login() {
             animationDelay: `${i * 0.4}s`,
           }} />
         ))}
-
-        {/* Shield icon */}
         <motion.div
           animate={{ y: [0, -12, 0] }}
           transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
@@ -92,7 +128,6 @@ export default function Login() {
         >
           <Shield size={48} color="#a855f7" />
         </motion.div>
-
         <div style={{ textAlign: 'center', marginBottom: 48, position: 'relative' }}>
           <h1 style={{
             fontFamily: 'JetBrains Mono, monospace', fontSize: 36,
@@ -108,8 +143,6 @@ export default function Login() {
             AI-powered brand protection for India's leading companies
           </p>
         </div>
-
-        {/* Stats */}
         <div style={{ display: 'flex', gap: 20 }}>
           {STATS.map(s => (
             <div key={s.label} style={{
@@ -168,10 +201,10 @@ export default function Login() {
                   type="email" placeholder="you@company.com"
                   value={email} onChange={e => setEmail(e.target.value)} required
                   style={{
-                    paddingLeft: 36, background: 'rgba(26,26,46,0.8)',
+                    background: 'rgba(26,26,46,0.8)',
                     border: '1px solid #2a2a4a', borderRadius: 8, color: '#f1f0ff',
                     fontSize: 13, padding: '10px 14px 10px 36px', width: '100%',
-                    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s',
+                    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box',
                   }}
                   onFocus={e => { e.target.style.borderColor = '#7c3aed'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.15)' }}
                   onBlur={e => { e.target.style.borderColor = '#2a2a4a'; e.target.style.boxShadow = 'none' }}
@@ -180,7 +213,7 @@ export default function Login() {
             </div>
 
             {/* Password */}
-            <div style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
                 Password
               </label>
@@ -190,11 +223,10 @@ export default function Login() {
                   type={showPw ? 'text' : 'password'} placeholder="••••••••"
                   value={password} onChange={e => setPassword(e.target.value)} required
                   style={{
-                    paddingLeft: 36, paddingRight: 40,
                     background: 'rgba(26,26,46,0.8)',
                     border: '1px solid #2a2a4a', borderRadius: 8, color: '#f1f0ff',
                     fontSize: 13, padding: '10px 40px 10px 36px', width: '100%',
-                    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s',
+                    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box',
                   }}
                   onFocus={e => { e.target.style.borderColor = '#7c3aed'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.15)' }}
                   onBlur={e => { e.target.style.borderColor = '#2a2a4a'; e.target.style.boxShadow = 'none' }}
@@ -227,7 +259,6 @@ export default function Login() {
               )}
             </AnimatePresence>
 
-            {/* Submit */}
             <button
               className="btn-primary"
               type="submit"
@@ -246,15 +277,29 @@ export default function Login() {
           </form>
 
           {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0 16px' }}>
             <div style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
             <span style={{ color: '#5c5880', fontSize: 12 }}>or</span>
             <div style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
           </div>
 
+          {/* Google Sign-In */}
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError('Google sign-in failed. Please try again.')}
+              theme="filled_black"
+              size="large"
+              width="340"
+              text="signin_with_google"
+              shape="rectangular"
+            />
+          </div>
+
           {/* Demo */}
           <button
             onClick={fillDemo}
+            disabled={loading}
             style={{
               width: '100%', padding: '10px', borderRadius: 8, cursor: 'pointer',
               background: 'transparent', border: '1px solid rgba(245,158,11,0.35)',

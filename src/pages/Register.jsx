@@ -1,20 +1,28 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Shield, User, Mail, Lock, Tag } from 'lucide-react'
-import { setToken } from '../auth'
+import { Shield, User, Mail, Lock } from 'lucide-react'
+import { GoogleLogin } from '@react-oauth/google'
+import { setToken, setUser } from '../auth'
 
-const BASE = 'http://localhost:8001'
+const BASE = 'http://localhost:8000'
 
-const FIELDS = [
-  { key: 'name',       label: 'Full Name',   type: 'text',     placeholder: 'Rahul Rawat',    icon: User },
-  { key: 'email',      label: 'Email',        type: 'email',    placeholder: 'you@company.com', icon: Mail },
-  { key: 'password',   label: 'Password',     type: 'password', placeholder: '••••••••',        icon: Lock },
-  { key: 'brand_name', label: 'Brand Name',   type: 'text',     placeholder: 'boAt, Nykaa…',    icon: Tag  },
-]
+function friendlyError(err) {
+  const msg = err.message || ''
+  if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('load failed')) {
+    return 'Cannot connect to server. Make sure the backend is running on port 8000.'
+  }
+  if (msg.includes('409') || msg.toLowerCase().includes('already registered')) {
+    return 'An account with this email already exists. Sign in instead.'
+  }
+  if (msg.includes('500')) {
+    return 'Server error. Please try again.'
+  }
+  return msg || 'Registration failed. Please try again.'
+}
 
 export default function Register() {
-  const [form, setForm]       = useState({ name: '', email: '', password: '', brand_name: '' })
+  const [form, setForm]       = useState({ full_name: '', email: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
   const navigate = useNavigate()
@@ -25,21 +33,48 @@ export default function Register() {
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      const res = await fetch(`${BASE}/auth/register`, {
+      const res = await fetch(`${BASE}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Registration failed')
+      if (!res.ok) throw new Error(data.detail || `${res.status}`)
       setToken(data.access_token)
-      navigate('/dashboard')
+      if (data.user) setUser(data.user)
+      navigate('/onboarding')
     } catch (err) {
-      setError(err.message)
+      setError(friendlyError(err))
     } finally {
       setLoading(false)
     }
   }
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch(`${BASE}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: credentialResponse.credential }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `${res.status}`)
+      setToken(data.access_token)
+      if (data.user) setUser(data.user)
+      navigate('/onboarding')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const FIELDS = [
+    { key: 'full_name', label: 'Full Name', type: 'text',     placeholder: 'Rahul Rawat',     icon: User,  required: false },
+    { key: 'email',     label: 'Email',     type: 'email',    placeholder: 'you@company.com', icon: Mail,  required: true  },
+    { key: 'password',  label: 'Password',  type: 'password', placeholder: '••••••••',        icon: Lock,  required: true  },
+  ]
 
   return (
     <div style={{
@@ -95,7 +130,7 @@ export default function Register() {
         </p>
       </div>
 
-      {/* Right panel — form */}
+      {/* Right panel */}
       <motion.div
         initial={{ x: 60, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
@@ -121,24 +156,43 @@ export default function Register() {
             Get started with brand protection in minutes
           </p>
 
+          {/* Google Sign-Up */}
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError('Google sign-up failed. Please try again.')}
+              theme="filled_black"
+              size="large"
+              width="360"
+              text="signup_with_google"
+              shape="rectangular"
+            />
+          </div>
+
+          {/* Divider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 20px' }}>
+            <div style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
+            <span style={{ color: '#5c5880', fontSize: 12 }}>or sign up with email</span>
+            <div style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
+          </div>
+
           <form onSubmit={submit}>
-            {FIELDS.map(({ key, label, type, placeholder, icon: Icon }) => (
+            {FIELDS.map(({ key, label, type, placeholder, icon: Icon, required }) => (
               <div key={key} style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                  {label}{key !== 'brand_name' && ' *'}
+                  {label}{required ? ' *' : ''}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Icon size={14} color="#5c5880" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                   <input
                     type={type} placeholder={placeholder}
                     value={form[key]} onChange={set(key)}
-                    required={key !== 'brand_name'}
+                    required={required}
                     style={{
-                      paddingLeft: 36,
                       background: 'rgba(26,26,46,0.8)',
                       border: '1px solid #2a2a4a', borderRadius: 8, color: '#f1f0ff',
                       fontSize: 13, padding: '10px 14px 10px 36px', width: '100%',
-                      outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s',
+                      outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box',
                     }}
                     onFocus={e => { e.target.style.borderColor = '#7c3aed'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.15)' }}
                     onBlur={e => { e.target.style.borderColor = '#2a2a4a'; e.target.style.boxShadow = 'none' }}

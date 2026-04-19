@@ -1,6 +1,220 @@
 import { useEffect, useState } from 'react'
-import { Bell, Plus, Trash2, Send, RefreshCw } from 'lucide-react'
+import { Bell, Plus, Trash2, Send, RefreshCw, AlertTriangle, X, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { api } from '../api/client'
+
+// ── WhatsApp Setup Guide ──────────────────────────────────────────────────────
+
+const SETUP_STEPS = [
+  {
+    n: 1,
+    title: 'Create Meta Developer App',
+    detail: 'Go to developers.facebook.com → Create App → Business type → add app name',
+  },
+  {
+    n: 2,
+    title: 'Add WhatsApp Product',
+    detail: 'In your app dashboard → Add Product → WhatsApp → Set up',
+  },
+  {
+    n: 3,
+    title: 'Copy Access Token → .env',
+    detail: 'WhatsApp → API Setup → copy "Temporary access token" → paste as WA_ACCESS_TOKEN=... in backend .env',
+    code: 'WA_ACCESS_TOKEN=EAABs...',
+  },
+  {
+    n: 4,
+    title: 'Copy Phone Number ID → .env',
+    detail: 'Same page → copy Phone number ID → paste as WA_PHONE_NUMBER_ID=...',
+    code: 'WA_PHONE_NUMBER_ID=1234567890',
+  },
+  {
+    n: 5,
+    title: 'Restart backend',
+    detail: 'Run: uvicorn api.main:app --reload --port 8000',
+    code: 'uvicorn api.main:app --reload --port 8000',
+  },
+]
+
+const ALT_CHANNELS = [
+  { emoji: '✈️', name: 'Telegram',  vars: 'TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID' },
+  { emoji: '🎮', name: 'Discord',   vars: 'DISCORD_WEBHOOK_URL' },
+  { emoji: '✉️', name: 'Email',     vars: 'SMTP_USERNAME + SMTP_PASSWORD' },
+]
+
+function SetupGuideModal({ onClose }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+      zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+    }} onClick={onClose}>
+      <div
+        className="card"
+        style={{ width: '100%', maxWidth: 560, padding: 0, overflow: 'hidden', maxHeight: '90vh', overflowY: 'auto' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px', borderBottom: '1px solid #2a2a4a',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(245,158,11,0.04)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20 }}>📱</span>
+            <div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 13, color: '#f1f0ff' }}>
+                WhatsApp Business API Setup
+              </div>
+              <div style={{ fontSize: 11, color: '#5c5880', marginTop: 2 }}>
+                5 steps — takes about 10 minutes
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#5c5880', padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ padding: 24 }}>
+          {/* Steps */}
+          {SETUP_STEPS.map((s, i) => (
+            <div key={s.n} style={{
+              display: 'flex', gap: 16, marginBottom: i < SETUP_STEPS.length - 1 ? 20 : 0,
+              position: 'relative',
+            }}>
+              {/* Line */}
+              {i < SETUP_STEPS.length - 1 && (
+                <div style={{
+                  position: 'absolute', left: 15, top: 32, bottom: -20, width: 2,
+                  background: '#2a2a4a',
+                }} />
+              )}
+              {/* Number */}
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                background: 'rgba(245,158,11,0.15)', border: '1.5px solid rgba(245,158,11,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 700, color: '#f59e0b',
+                zIndex: 1,
+              }}>
+                {s.n}
+              </div>
+              <div style={{ flex: 1, paddingTop: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f0ff', marginBottom: 4 }}>{s.title}</div>
+                <div style={{ fontSize: 12, color: '#5c5880', lineHeight: 1.6 }}>{s.detail}</div>
+                {s.code && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 12px', borderRadius: 6,
+                    background: '#08080f', border: '1px solid #2a2a4a',
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#a855f7',
+                  }}>
+                    {s.code}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Alternative channels */}
+          <div style={{
+            marginTop: 28, padding: 16, borderRadius: 10,
+            background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.15)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#10b981', marginBottom: 12 }}>
+              ✅ Alternative channels — work NOW without Meta setup
+            </div>
+            {ALT_CHANNELS.map(ch => (
+              <div key={ch.name} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                fontSize: 12, color: '#a8a4c8',
+              }}>
+                <span>{ch.emoji}</span>
+                <span style={{ fontWeight: 600, color: '#f1f0ff', minWidth: 70 }}>{ch.name}</span>
+                <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#5c5880' }}>
+                  {ch.vars}
+                </code>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: '#5c5880', marginTop: 10 }}>
+              Add these to your backend .env file, then restart the server.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── WhatsApp config banner ────────────────────────────────────────────────────
+
+function WhatsAppBanner() {
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem('wa_banner_dismissed') === '1'
+  )
+  const [showGuide, setShowGuide] = useState(false)
+  const [configured, setConfigured] = useState(null)  // null = checking
+
+  useEffect(() => {
+    // Probe /health — backend returns wa_configured flag
+    fetch('http://localhost:8000/health')
+      .then(r => r.json())
+      .then(d => setConfigured(d.wa_configured ?? false))
+      .catch(() => setConfigured(false))
+  }, [])
+
+  if (configured === true || dismissed) return null
+  if (configured === null) return null  // still loading
+
+  return (
+    <>
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+        padding: '14px 18px', borderRadius: 10, marginBottom: 24,
+        background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <AlertTriangle size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#f59e0b', marginBottom: 3 }}>
+              WhatsApp not configured
+            </div>
+            <div style={{ fontSize: 12, color: '#a8a4c8' }}>
+              Add <code style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f59e0b' }}>WA_ACCESS_TOKEN</code> and{' '}
+              <code style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f59e0b' }}>WA_PHONE_NUMBER_ID</code> to{' '}
+              <code style={{ fontFamily: 'JetBrains Mono, monospace', color: '#5c5880' }}>.env</code> to enable WhatsApp alerts.
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={() => setShowGuide(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 7, cursor: 'pointer', fontSize: 12,
+              background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)',
+              color: '#f59e0b', fontWeight: 600, transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
+          >
+            <ExternalLink size={12} /> View Setup Guide
+          </button>
+          <button
+            onClick={() => { setDismissed(true); localStorage.setItem('wa_banner_dismissed', '1') }}
+            style={{
+              padding: '6px 8px', borderRadius: 7, cursor: 'pointer',
+              background: 'transparent', border: '1px solid #2a2a4a',
+              color: '#5c5880', transition: 'all 0.15s',
+            }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+      {showGuide && <SetupGuideModal onClose={() => setShowGuide(false)} />}
+    </>
+  )
+}
 
 export default function Alerts() {
   const [brand, setBrand]           = useState('')
@@ -109,6 +323,9 @@ export default function Alerts() {
           Manage alert recipients and notification channels
         </p>
       </div>
+
+      {/* WhatsApp setup banner */}
+      <WhatsAppBanner />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }} className="mobile-stack">
         {/* Recipients lookup */}

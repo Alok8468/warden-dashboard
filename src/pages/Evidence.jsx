@@ -49,7 +49,7 @@ function EvidencePackage({ pkg }) {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
               {files.map((file, i) => {
-                const downloadUrl = `http://localhost:8001/api/evidence/${pkg.scan_id}/${encodeURIComponent(pkg.target)}/${encodeURIComponent(file)}`
+                const downloadUrl = `http://localhost:8000/api/evidence/${pkg.scan_id}/${encodeURIComponent(pkg.target)}/${encodeURIComponent(file)}`
                 return (
                   <a
                     key={i}

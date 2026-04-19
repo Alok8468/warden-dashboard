@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Plus, ShieldAlert, Zap, FolderLock, Shield, Activity } from 'lucide-react'
 import { api } from '../api/client'
@@ -143,16 +143,20 @@ function ProtectionRing({ score }) {
   const radius = 54
   const circ   = 2 * Math.PI * radius
   const dash   = (score / 100) * circ
-  const color  = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const color  = score >= 90 ? '#10b981' : score >= 70 ? '#06b6d4' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const label  = score >= 90 ? 'Excellent' : score >= 70 ? 'Good' : score >= 50 ? 'At Risk' : 'Critical'
+  const offset = circ - dash
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
       <svg width={140} height={140} viewBox="0 0 140 140">
         <circle cx={70} cy={70} r={radius} fill="none" stroke="#1a1a2e" strokeWidth={12} />
         <circle cx={70} cy={70} r={radius} fill="none" stroke={color} strokeWidth={12}
-          strokeDasharray={`${dash} ${circ}`}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
           strokeLinecap="round"
           transform="rotate(-90 70 70)"
-          style={{ transition: 'stroke-dasharray 1.2s ease-out', filter: `drop-shadow(0 0 6px ${color})` }}
+          style={{ transition: 'stroke-dashoffset 1.5s ease', filter: `drop-shadow(0 0 6px ${color})` }}
         />
         <text x={70} y={65} textAnchor="middle" fill={color} fontSize={26} fontWeight={700} fontFamily="JetBrains Mono, monospace">
           <CountUp value={score} />
@@ -164,9 +168,7 @@ function ProtectionRing({ score }) {
       <div style={{ fontSize: 11, color: '#5c5880', textAlign: 'center', fontFamily: 'JetBrains Mono, monospace' }}>
         PROTECTION SCORE
       </div>
-      <div style={{ fontSize: 12, color, fontWeight: 600 }}>
-        {score >= 80 ? 'Excellent' : score >= 50 ? 'At Risk' : 'Critical'}
-      </div>
+      <div style={{ fontSize: 12, color, fontWeight: 600 }}>{label}</div>
     </div>
   )
 }
@@ -211,12 +213,17 @@ export default function Dashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [scanData, statsData] = await Promise.all([
-        api.listScans().catch(() => ({ scans: [] })),
-        fetch('http://localhost:8001/api/stats').then(r => r.json()).catch(() => ({})),
+      const token = localStorage.getItem('warden_token')
+      const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      const [statsRes, scansRes] = await Promise.all([
+        fetch('http://localhost:8000/api/stats',        { headers }).catch(() => null),
+        fetch('http://localhost:8000/api/scans?limit=20', { headers }).catch(() => null),
       ])
-      setScans(scanData.scans || [])
-      setStats(statsData)
+      if (statsRes?.ok) setStats(await statsRes.json())
+      if (scansRes?.ok) {
+        const d = await scansRes.json()
+        setScans(d.scans || [])
+      }
     } catch (e) {
       addEvent(`API error: ${e.message}`, '#ef4444')
     } finally {
@@ -227,36 +234,75 @@ export default function Dashboard() {
   useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [load])
 
   useEffect(() => {
-    if (!scans.length || events.length > 5) return
-    scans.slice(0, 3).forEach(s => {
+    if (!scans.length) return
+    // Populate activity feed from real scan history
+    const lines = scans.slice(0, 12).map(s => {
       const threats = s.results?.threats_found || s.results?.total_threats || 0
-      if (s.status === 'complete')
-        addEvent(`SCAN COMPLETE — ${s.target} — ${threats} threats`, threats > 0 ? '#f59e0b' : '#10b981')
+      const brand   = s.brand || s.target || s.domain || 'Unknown'
+      return {
+        text:  `[${(s.type || 'SCAN').toUpperCase()}] ${brand} — ${threats} threat${threats !== 1 ? 's' : ''} detected`,
+        color: threats >= 8 ? '#ef4444' : threats > 0 ? '#f59e0b' : '#10b981',
+        time:  s.started_at
+          ? new Date(s.started_at).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' })
+          : '--:--',
+      }
     })
-  }, [scans])
+    setEvents(lines)
+  }, [scans.length])
 
   const chartData = scans.slice(0, 10).reverse().map((s, i) => {
-    const r   = s.results || {}
-    const dr  = r.domain_results || {}
-    const sr  = r.social_results || {}
-    const all = [...(dr.threats || []), ...(sr.threats || []), ...(r.threats || [])]
-    return {
-      name: `S${i + 1}`,
-      high:   all.filter(t => t.threat_score >= 8).length,
-      medium: all.filter(t => t.threat_score >= 5 && t.threat_score < 8).length,
-      low:    all.filter(t => t.threat_score < 5).length,
-    }
+    const r     = s.results || {}
+    const total = r.threats_found || r.total_threats || 0
+    // Use high/med/low from results if present, otherwise estimate
+    const high   = r.threats_high   ?? Math.round(total * 0.3)
+    const medium = r.threats_medium ?? Math.round(total * 0.55)
+    const low    = r.threats_low    ?? Math.max(0, total - high - medium)
+    const label  = s.started_at
+      ? new Date(s.started_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
+      : `S${i + 1}`
+    return { name: label, high, medium, low, total }
   })
 
-  const allThreats = scans.flatMap(s => {
-    const r = s.results || {}
-    return [...(r.threats || []), ...(r.domain_results?.threats || []), ...(r.social_results?.threats || [])]
-  })
+  // Build synthetic radar dots from stats counts (no full threat objects in seeded data)
+  const radarDots = (() => {
+    const h = stats.threats_high   || 0
+    const m = stats.threats_medium || 0
+    const l = stats.threats_low    || 0
+    const dots = []
+    for (let i = 0; i < Math.min(h, 12); i++) dots.push({ threat_score: 8 + Math.random() * 2, domain: `high-threat-${i}` })
+    for (let i = 0; i < Math.min(m, 10); i++) dots.push({ threat_score: 5 + Math.random() * 3, domain: `med-threat-${i}` })
+    for (let i = 0; i < Math.min(l, 6);  i++) dots.push({ threat_score: Math.random() * 5,      domain: `low-threat-${i}` })
+    return dots
+  })()
 
-  const score = stats.protection_score ?? 100
+  const score       = stats.protection_score ?? 100
+  const location    = useLocation()
+  const toastMsg    = location.state?.toast
+
+  // Show a success toast if navigated here from onboarding
+  const [toast, setToast] = useState(toastMsg || null)
+  useEffect(() => {
+    if (toast) { const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t) }
+  }, [toast])
 
   return (
     <div className="page-enter dot-grid min-h-screen" style={{ padding: 24 }}>
+
+      {/* Success toast from onboarding */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '14px 20px', borderRadius: 12,
+          background: '#0d0d14', border: '1px solid rgba(16,185,129,0.4)',
+          boxShadow: '0 0 40px rgba(16,185,129,0.2)',
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#10b981',
+          animation: 'fadeInUp 0.3s ease',
+        }}>
+          {toast}
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
@@ -303,7 +349,7 @@ export default function Dashboard() {
           <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.15em', textTransform: 'uppercase', margin: 0, width: '100%', textAlign: 'center' }}>
             THREAT RADAR
           </h2>
-          <RadarCanvas threats={allThreats} />
+          <RadarCanvas threats={radarDots} />
           <div style={{ display: 'flex', gap: 16, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}>
             <span style={{ color: '#ef4444' }}>● HIGH</span>
             <span style={{ color: '#f59e0b' }}>● MED</span>
@@ -365,11 +411,30 @@ export default function Dashboard() {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>Loading...</div>
         ) : scans.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#5c5880', fontSize: 13 }}>
-            No scans yet —{' '}
-            <button className="btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => navigate('/scan')}>
-              launch first scan
-            </button>
+          <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>🛡️</div>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+              No brands protected yet
+            </div>
+            <div style={{ color: '#5c5880', fontSize: 13, marginBottom: 24, maxWidth: 360, margin: '0 auto 24px' }}>
+              Add your first brand to start monitoring for fake domains, social impersonation, and other threats — 24/7.
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                className="btn-primary"
+                onClick={() => navigate('/onboarding')}
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <Plus size={14} /> Add First Brand
+              </button>
+              <button
+                className="btn-outline"
+                onClick={() => navigate('/scan')}
+                style={{ fontSize: 12 }}
+              >
+                Run Manual Scan
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

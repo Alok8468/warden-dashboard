@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, ScanLine, ShieldAlert, Zap,
   FolderLock, FileBarChart, Bell, Clock as ClockIcon, Shield,
-  LogOut, Menu, X, Activity,
+  LogOut, Menu, X, Activity, CreditCard, Settings,
 } from 'lucide-react'
 import { clearToken } from '../auth'
 import { api } from '../api/client'
@@ -17,7 +17,9 @@ const NAV = [
   { to: '/evidence',  icon: FolderLock,      label: 'Evidence',   key: 'evidence' },
   { to: '/reports',   icon: FileBarChart,    label: 'Reports',    key: 'reports' },
   { to: '/alerts',    icon: Bell,            label: 'Alerts',     key: 'alerts' },
-  { to: '/scheduler', icon: ClockIcon,        label: 'Scheduler',  key: 'scheduler' },
+  { to: '/scheduler', icon: ClockIcon,       label: 'Scheduler',  key: 'scheduler' },
+  { to: '/settings',  icon: Settings,        label: 'Settings',   key: 'settings' },
+  { to: '/pricing',   icon: CreditCard,      label: 'Pricing',    key: 'pricing' },
 ]
 
 function Clock() {
@@ -49,7 +51,7 @@ function SidebarContent({ onClose }) {
       try {
         const h = await api.health()
         setOnline(!!h)
-        const s = await fetch('http://localhost:8001/api/stats').then(r => r.json()).catch(() => null)
+        const s = await api.getStats().catch(() => null)
         if (s) setStats(s)
       } catch { setOnline(false) }
     }
@@ -59,9 +61,9 @@ function SidebarContent({ onClose }) {
   }, [])
 
   const badges = {
-    threats:  stats.threats_total,
-    takedowns: stats.takedowns_filed,
-    evidence:  stats.evidence_packages,
+    threats:   stats.threats_high  || 0,    // red  — high-risk count
+    takedowns: stats.takedowns_filed || 0,  // amber — filed count
+    alerts:    stats.unread_alerts  || 0,   // purple — unread
   }
 
   return (
@@ -144,13 +146,29 @@ function SidebarContent({ onClose }) {
               <span style={{ flex: 1 }}>{item.label}</span>
               {badge > 0 && (
                 <span style={{
-                  background: item.key === 'threats' ? 'rgba(239,68,68,0.2)' : 'rgba(124,58,237,0.15)',
-                  color: item.key === 'threats' ? '#ef4444' : '#a855f7',
-                  border: `1px solid ${item.key === 'threats' ? 'rgba(239,68,68,0.3)' : 'rgba(124,58,237,0.3)'}`,
-                  borderRadius: 100, fontSize: 10, fontWeight: 700,
+                  background: item.key === 'threats'
+                    ? 'rgba(239,68,68,0.18)'
+                    : item.key === 'takedowns'
+                    ? 'rgba(245,158,11,0.18)'
+                    : 'rgba(124,58,237,0.15)',
+                  color: item.key === 'threats'
+                    ? '#ef4444'
+                    : item.key === 'takedowns'
+                    ? '#f59e0b'
+                    : '#a855f7',
+                  border: `1px solid ${
+                    item.key === 'threats'
+                      ? 'rgba(239,68,68,0.35)'
+                      : item.key === 'takedowns'
+                      ? 'rgba(245,158,11,0.35)'
+                      : 'rgba(124,58,237,0.3)'
+                  }`,
+                  borderRadius: 999, fontSize: 10, fontWeight: 700,
                   fontFamily: 'JetBrains Mono, monospace',
                   padding: '1px 7px', minWidth: 22, textAlign: 'center',
-                }}>{badge}</span>
+                }}>
+                  {badge > 99 ? '99+' : badge}
+                </span>
               )}
             </NavLink>
           )

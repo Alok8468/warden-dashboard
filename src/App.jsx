@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import { BrandProvider } from './context/BrandContext'
 import Sidebar from './components/Sidebar'
+import Landing from './pages/Landing'
+import Pricing from './pages/Pricing'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -12,6 +14,8 @@ import Evidence from './pages/Evidence'
 import Reports from './pages/Reports'
 import Alerts from './pages/Alerts'
 import Scheduler from './pages/Scheduler'
+import Settings from './pages/Settings'
+import Onboarding from './pages/Onboarding'
 
 function AppShell({ children }) {
   return (
@@ -34,9 +38,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/"           element={<Landing />} />
+        <Route path="/pricing"    element={<Pricing />} />
         <Route path="/login"      element={<Login />} />
         <Route path="/register"   element={<Register />} />
-        <Route path="/"           element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard"  element={<P><Dashboard /></P>} />
         <Route path="/scan"       element={<P><Scan /></P>} />
         <Route path="/threats"    element={<P><Threats /></P>} />
@@ -45,6 +50,8 @@ export default function App() {
         <Route path="/reports"    element={<P><Reports /></P>} />
         <Route path="/alerts"     element={<P><Alerts /></P>} />
         <Route path="/scheduler"  element={<P><Scheduler /></P>} />
+        <Route path="/settings"   element={<P><Settings /></P>} />
+        <Route path="/onboarding" element={<P><Onboarding /></P>} />
       </Routes>
     </BrowserRouter>
   )

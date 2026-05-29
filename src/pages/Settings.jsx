@@ -297,8 +297,18 @@ export default function Settings() {
     } finally { setDeleting(false) }
   }
 
+  const [activeTab, setActiveTab] = useState('profile')
+
   const plan = user?.plan || 'free'
   const pc   = PLAN_CONFIG[plan] || PLAN_CONFIG.free
+
+  const TABS = [
+    { id: 'profile',       label: 'Profile',       icon: User },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'api',           label: 'API Keys',      icon: Key  },
+    { id: 'team',          label: 'Team',          icon: Shield },
+    { id: 'billing',       label: 'Billing',       icon: CreditCard },
+  ]
 
   return (
     <div className="page-enter dot-grid min-h-screen" style={{ padding: '24px 24px 48px' }}>
@@ -308,7 +318,7 @@ export default function Settings() {
       </AnimatePresence>
 
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 20, fontWeight: 700, margin: 0, color: '#f1f0ff', letterSpacing: '0.05em' }}>
           SETTINGS
         </h1>
@@ -317,13 +327,68 @@ export default function Settings() {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20 }} className="mobile-stack">
+      {/* Tab nav */}
+      <div style={{
+        display: 'flex', gap: 4, marginBottom: 28,
+        padding: '4px', borderRadius: 10,
+        background: '#13131f', border: '1px solid #2a2a4a',
+        width: 'fit-content', flexWrap: 'wrap',
+      }}>
+        {TABS.map(tab => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: active ? 700 : 500,
+                fontFamily: 'JetBrains Mono, monospace',
+                background: active ? 'rgba(124,58,237,0.2)' : 'transparent',
+                color: active ? '#a855f7' : '#5c5880',
+                borderBottom: active ? '1px solid rgba(124,58,237,0.5)' : '1px solid transparent',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Icon size={13} />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'team' && (
+        <Section title="Team Members" subtitle="Invite team members to collaborate on brand protection" icon={Shield}>
+          <div style={{ padding: '24px 0', textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+              Team collaboration coming soon
+            </div>
+            <div style={{ color: '#5c5880', fontSize: 13, marginBottom: 20, maxWidth: 380, margin: '0 auto 20px' }}>
+              Invite analysts, legal teams, and managers to collaborate on brand protection.
+              Available on Growth and Enterprise plans.
+            </div>
+            <a href="/billing" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+              color: '#fff', textDecoration: 'none',
+            }}>
+              Upgrade to Growth →
+            </a>
+          </div>
+        </Section>
+      )}
+
+      {(activeTab === 'profile' || activeTab === 'notifications' || activeTab === 'billing') && <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20 }} className="mobile-stack">
 
         {/* ── LEFT COLUMN ── */}
         <div>
 
           {/* Profile */}
-          <Section title="Profile" subtitle="Your name and email address" icon={User}>
+          {(activeTab === 'profile') && <Section title="Profile" subtitle="Your name and email address" icon={User}>
             <form onSubmit={saveProfile}>
               <Field
                 label="Full Name"
@@ -344,10 +409,10 @@ export default function Settings() {
                 </button>
               </div>
             </form>
-          </Section>
+          </Section>}
 
           {/* Plan */}
-          <Section title="Plan & Billing" subtitle="Your current subscription" icon={CreditCard}>
+          {(activeTab === 'billing') && <Section title="Plan & Billing" subtitle="Your current subscription" icon={CreditCard}>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '16px 20px', borderRadius: 10,
@@ -411,7 +476,7 @@ export default function Settings() {
                 Contact <span style={{ color: '#a855f7' }}>support@warden.ai</span> to manage your subscription
               </div>
             )}
-          </Section>
+          </Section>}
 
         </div>
 
@@ -419,7 +484,7 @@ export default function Settings() {
         <div>
 
           {/* Notifications */}
-          <Section title="Notification Preferences" subtitle="Choose how you want to be alerted" icon={Bell}>
+          {(activeTab === 'notifications') && <Section title="Notification Preferences" subtitle="Choose how you want to be alerted" icon={Bell}>
             <Toggle
               label="WhatsApp Alerts"
               desc="Get instant WhatsApp messages when high-risk threats are found"
@@ -451,10 +516,10 @@ export default function Settings() {
               onChange={v => setNotif('takedown_confirmed', v)}
             />
             <div style={{ marginTop: 4 }} />
-          </Section>
+          </Section>}
 
           {/* Account info */}
-          <Section title="Account Details" subtitle="Your account identifiers" icon={Shield}>
+          {(activeTab === 'profile') && <Section title="Account Details" subtitle="Your account identifiers" icon={Shield}>
             {[
               { label: 'User ID',   value: user?.id || '—' },
               { label: 'Tenant ID', value: user?.tenant_id || '—' },
@@ -466,13 +531,13 @@ export default function Settings() {
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#a8a4c8', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.value}</span>
               </div>
             ))}
-          </Section>
+          </Section>}
 
         </div>
-      </div>
+      </div>}
 
       {/* ── API Keys — full width ── */}
-      <Section title="API Keys" subtitle="Use these keys to access the Warden.AI API from your own applications" icon={Key}>
+      {activeTab === 'api' && <Section title="API Keys" subtitle="Use these keys to access the Warden.AI API from your own applications" icon={Key}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 12, marginBottom: 20, alignItems: 'flex-end' }}>
           <Field
             label="New Key Name"
@@ -604,10 +669,10 @@ export default function Settings() {
           Pass your API key in the <code style={{ color: '#a855f7' }}>X-API-Key</code> header.
           Base URL: <code style={{ color: '#a855f7' }}>http://localhost:8000</code>
         </div>
-      </Section>
+      </Section>}
 
       {/* ── Danger Zone ── */}
-      <Section title="Danger Zone" subtitle="Irreversible actions — proceed with caution" icon={AlertTriangle} danger>
+      {activeTab === 'profile' && <Section title="Danger Zone" subtitle="Irreversible actions — proceed with caution" icon={AlertTriangle} danger>
         <div style={{
           display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'center',
           padding: '16px 20px', borderRadius: 10,
@@ -674,7 +739,7 @@ export default function Settings() {
             </motion.div>
           )}
         </AnimatePresence>
-      </Section>
+      </Section>}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

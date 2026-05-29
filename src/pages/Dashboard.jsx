@@ -4,6 +4,10 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { RefreshCw, Plus, ShieldAlert, Zap, FolderLock, Shield, Activity } from 'lucide-react'
 import { api } from '../api/client'
 import CountUp from '../components/CountUp'
+import { LiveThreatFeed } from '../components/LiveThreatFeed'
+import { ActivityTimeline } from '../components/ActivityTimeline'
+import { ScoreTrend } from '../components/ScoreTrend'
+import { useThreatFeed } from '../hooks/useThreatFeed'
 
 // ── Radar Canvas ──────────────────────────────────────────────────────────────
 function RadarCanvas({ threats = [] }) {
@@ -138,8 +142,129 @@ function MetricCard({ label, value, sub, color = '#7c3aed', icon: Icon }) {
   )
 }
 
+// ── Protection Score Explanation Modal ────────────────────────────────────────
+function ScoreModal({ score, stats, onClose }) {
+  const color = score >= 90 ? '#10b981' : score >= 70 ? '#06b6d4' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const label = score >= 90 ? 'Excellent' : score >= 70 ? 'Good' : score >= 50 ? 'At Risk' : 'Critical'
+
+  const factors = [
+    {
+      label: 'High-Risk Threats',
+      value: stats.threats_high || 0,
+      impact: -(Math.min(stats.threats_high || 0, 10) * 4),
+      color: '#ef4444',
+      desc: 'Each high-risk threat detected deducts up to 4 points.',
+    },
+    {
+      label: 'Takedowns Filed',
+      value: stats.takedowns_filed || 0,
+      impact: Math.min((stats.takedowns_filed || 0) * 2, 20),
+      color: '#10b981',
+      desc: 'Successfully filed takedowns improve your score.',
+    },
+    {
+      label: 'Platforms Monitored',
+      value: 7,
+      impact: 10,
+      color: '#7c3aed',
+      desc: 'Active monitoring across all 7 platforms adds baseline points.',
+    },
+    {
+      label: 'Scans Run',
+      value: stats.total_scans || 0,
+      impact: Math.min((stats.total_scans || 0) * 1, 10),
+      color: '#06b6d4',
+      desc: 'Regular scanning demonstrates active brand protection.',
+    },
+  ]
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(13,13,20,0.88)',
+        zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="card"
+        style={{ width: '100%', maxWidth: 560, padding: 0, overflow: 'hidden' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px', borderBottom: '1px solid #2a2a4a',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#5c5880', marginBottom: 4 }}>
+              PROTECTION SCORE BREAKDOWN
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 36, fontWeight: 700, color, fontFamily: 'JetBrains Mono, monospace' }}>
+                {score}
+              </span>
+              <span style={{ color: '#5c5880', fontSize: 13 }}>/100 — {label}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', color: '#5c5880', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}
+          >✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 24 }}>
+          <p style={{ fontSize: 13, color: '#a8a4c8', marginBottom: 20, lineHeight: 1.6 }}>
+            Your protection score reflects how actively your brand is monitored and defended.
+            Scores above 70 are considered healthy; below 50 indicates immediate action required.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {factors.map(f => (
+              <div key={f.label} style={{ background: '#0d0d1a', borderRadius: 8, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f0ff' }}>{f.label}</div>
+                  <div style={{ display: 'flex', align: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: '#5c5880', fontFamily: 'JetBrains Mono, monospace' }}>{f.value}</span>
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, color: f.impact >= 0 ? '#10b981' : '#ef4444',
+                      fontFamily: 'JetBrains Mono, monospace', minWidth: 44, textAlign: 'right',
+                    }}>
+                      {f.impact >= 0 ? '+' : ''}{f.impact}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#5c5880' }}>{f.desc}</div>
+                {/* Progress bar */}
+                <div style={{ height: 3, background: '#1a1a2e', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', background: f.color, borderRadius: 2,
+                    width: `${Math.min(Math.abs(f.impact) * 5, 100)}%`,
+                    transition: 'width 0.6s ease',
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{
+            marginTop: 20, padding: '12px 16px', borderRadius: 8,
+            background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)',
+            fontSize: 12, color: '#a8a4c8',
+          }}>
+            <strong style={{ color: '#a855f7' }}>Improve your score:</strong> Run more scans, file takedowns for detected threats,
+            and ensure monitoring is active on all platforms.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Protection Score Ring ──────────────────────────────────────────────────────
-function ProtectionRing({ score }) {
+function ProtectionRing({ score, stats }) {
+  const [showModal, setShowModal] = useState(false)
   const radius = 54
   const circ   = 2 * Math.PI * radius
   const dash   = (score / 100) * circ
@@ -148,47 +273,36 @@ function ProtectionRing({ score }) {
   const offset = circ - dash
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      <svg width={140} height={140} viewBox="0 0 140 140">
-        <circle cx={70} cy={70} r={radius} fill="none" stroke="#1a1a2e" strokeWidth={12} />
-        <circle cx={70} cy={70} r={radius} fill="none" stroke={color} strokeWidth={12}
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          transform="rotate(-90 70 70)"
-          style={{ transition: 'stroke-dashoffset 1.5s ease', filter: `drop-shadow(0 0 6px ${color})` }}
-        />
-        <text x={70} y={65} textAnchor="middle" fill={color} fontSize={26} fontWeight={700} fontFamily="JetBrains Mono, monospace">
-          <CountUp value={score} />
-        </text>
-        <text x={70} y={83} textAnchor="middle" fill="#5c5880" fontSize={10} fontFamily="JetBrains Mono, monospace">
-          /100
-        </text>
-      </svg>
-      <div style={{ fontSize: 11, color: '#5c5880', textAlign: 'center', fontFamily: 'JetBrains Mono, monospace' }}>
-        PROTECTION SCORE
-      </div>
-      <div style={{ fontSize: 12, color, fontWeight: 600 }}>{label}</div>
-    </div>
-  )
-}
-
-// ── Activity Feed ─────────────────────────────────────────────────────────────
-function ActivityFeed({ events }) {
-  const ref = useRef(null)
-  useEffect(() => { ref.current?.scrollTo({ top: 9999, behavior: 'smooth' }) }, [events])
-  return (
-    <div ref={ref} className="terminal" style={{ height: 200, overflowY: 'auto' }}>
-      {events.length === 0 && <div style={{ color: '#5c5880' }}>{'> '}Waiting for activity...</div>}
-      {events.map((e, i) => (
-        <div key={i} style={{ color: e.color || '#a855f7' }}>
-          <span style={{ color: '#2a2a4a' }}>[{e.time}] </span>
-          <span style={{ color: '#7c3aed' }}>&gt; </span>
-          {e.text}
+    <>
+      {showModal && <ScoreModal score={score} stats={stats} onClose={() => setShowModal(false)} />}
+      <div
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+        onClick={() => setShowModal(true)}
+        title="Click to see score breakdown"
+      >
+        <svg width={140} height={140} viewBox="0 0 140 140">
+          <circle cx={70} cy={70} r={radius} fill="none" stroke="#1a1a2e" strokeWidth={12} />
+          <circle cx={70} cy={70} r={radius} fill="none" stroke={color} strokeWidth={12}
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform="rotate(-90 70 70)"
+            style={{ transition: 'stroke-dashoffset 1.5s ease', filter: `drop-shadow(0 0 6px ${color})` }}
+          />
+          <text x={70} y={65} textAnchor="middle" fill={color} fontSize={26} fontWeight={700} fontFamily="JetBrains Mono, monospace">
+            <CountUp value={score} />
+          </text>
+          <text x={70} y={83} textAnchor="middle" fill="#5c5880" fontSize={10} fontFamily="JetBrains Mono, monospace">
+            /100
+          </text>
+        </svg>
+        <div style={{ fontSize: 11, color: '#5c5880', textAlign: 'center', fontFamily: 'JetBrains Mono, monospace' }}>
+          PROTECTION SCORE
         </div>
-      ))}
-      <div style={{ color: '#5c5880' }} className="cursor" />
-    </div>
+        <div style={{ fontSize: 12, color, fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: 10, color: '#3a3060', fontFamily: 'JetBrains Mono, monospace' }}>click for details</div>
+      </div>
+    </>
   )
 }
 
@@ -197,58 +311,52 @@ export default function Dashboard() {
   const [scans,   setScans]   = useState([])
   const [stats,   setStats]   = useState({})
   const [loading, setLoading] = useState(true)
-  const [events,  setEvents]  = useState(() => {
-    try { return JSON.parse(localStorage.getItem('warden_activity') || '[]').slice(-50) } catch { return [] }
-  })
   const navigate = useNavigate()
 
-  const addEvent = useCallback((text, color = '#a855f7') => {
-    const e = { text, color, time: new Date().toLocaleTimeString('en-IN', { hour12: false }) }
-    setEvents(prev => {
-      const next = [...prev.slice(-49), e]
-      localStorage.setItem('warden_activity', JSON.stringify(next))
-      return next
-    })
-  }, [])
+  // ── Real-time threat feed ──────────────────────────────────────────────────
+  const { threats, timeline, connected, clearNewFlags } = useThreatFeed()
+
+  // Merge real-time threat counts into stats and recompute score instantly
+  const liveHigh  = threats.filter(t => ['high', 'critical'].includes(t.risk_level)).length
+  const liveMed   = threats.filter(t => t.risk_level === 'medium').length
+  const liveLow   = threats.filter(t => t.risk_level === 'low').length
+  const totalHigh = Math.max(stats.threats_high   || 0, liveHigh)
+  const totalMed  = Math.max(stats.threats_medium || 0, liveMed)
+  const totalLow  = Math.max(stats.threats_low    || 0, liveLow)
+  const liveScore = threats.length > 0
+    ? Math.max(5, 100
+        - Math.round(30 * (1 - Math.exp(-totalHigh / 5)))
+        - Math.round(25 * (1 - Math.exp(-totalMed  / 8)))
+        - Math.round(10 * (1 - Math.exp(-totalLow  / 15))))
+    : null
+  const liveStats = {
+    ...stats,
+    threats_total:    Math.max(stats.threats_total    || 0, threats.length),
+    threats_high:     totalHigh,
+    threats_medium:   totalMed,
+    threats_low:      totalLow,
+    protection_score: liveScore ?? stats.protection_score,
+  }
 
   const load = useCallback(async () => {
     try {
-      const token = localStorage.getItem('warden_token')
-      const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-      const [statsRes, scansRes] = await Promise.all([
-        fetch('http://localhost:8000/api/stats',        { headers }).catch(() => null),
-        fetch('http://localhost:8000/api/scans?limit=20', { headers }).catch(() => null),
+      // Use the shared api client so the Authorization header and 401 redirect
+      // are handled consistently (raw fetch was causing unauthenticated stats calls).
+      const [statsData, scansData] = await Promise.all([
+        api.getStats().catch(() => null),
+        api.listScans(20).catch(() => null),
       ])
-      if (statsRes?.ok) setStats(await statsRes.json())
-      if (scansRes?.ok) {
-        const d = await scansRes.json()
-        setScans(d.scans || [])
-      }
-    } catch (e) {
-      addEvent(`API error: ${e.message}`, '#ef4444')
+      if (statsData) setStats(statsData)
+      if (scansData) setScans(scansData.scans || [])
+    } catch {
+      // silently ignore — dashboard degrades gracefully
     } finally {
       setLoading(false)
     }
-  }, [addEvent])
+  }, [])
 
   useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [load])
 
-  useEffect(() => {
-    if (!scans.length) return
-    // Populate activity feed from real scan history
-    const lines = scans.slice(0, 12).map(s => {
-      const threats = s.results?.threats_found || s.results?.total_threats || 0
-      const brand   = s.brand || s.target || s.domain || 'Unknown'
-      return {
-        text:  `[${(s.type || 'SCAN').toUpperCase()}] ${brand} — ${threats} threat${threats !== 1 ? 's' : ''} detected`,
-        color: threats >= 8 ? '#ef4444' : threats > 0 ? '#f59e0b' : '#10b981',
-        time:  s.started_at
-          ? new Date(s.started_at).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-          : '--:--',
-      }
-    })
-    setEvents(lines)
-  }, [scans.length])
 
   const chartData = scans.slice(0, 10).reverse().map((s, i) => {
     const r     = s.results || {}
@@ -275,7 +383,7 @@ export default function Dashboard() {
     return dots
   })()
 
-  const score       = stats.protection_score ?? 100
+  const score       = liveStats.protection_score ?? stats.protection_score ?? 100
   const location    = useLocation()
   const toastMsg    = location.state?.toast
 
@@ -326,19 +434,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Top row: score + metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 20, marginBottom: 20 }}>
+      {/* Top row: score ring + 7-day trend + metric cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto auto 1fr', gap: 20, marginBottom: 20 }}>
         {/* Score ring */}
         <div className="card p-5" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 160 }}>
-          <ProtectionRing score={score} />
+          <ProtectionRing score={score} stats={stats} />
         </div>
 
+        {/* 7-day score trend */}
+        <ScoreTrend />
+
         {/* Metric cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }} className="mobile-stack">
-          <MetricCard label="Threats Total"   value={stats.threats_total || 0}     color="#ef4444" icon={ShieldAlert} sub={`${stats.threats_high || 0} high risk`} />
-          <MetricCard label="Takedowns Filed" value={stats.takedowns_filed || 0}   color="#7c3aed" icon={Zap}         sub="evidence built" />
-          <MetricCard label="Platforms"       value={7}                            color="#f59e0b" icon={Activity}     sub="monitored" />
-          <MetricCard label="Evidence Pkgs"   value={stats.evidence_packages || 0} color="#10b981" icon={FolderLock}   sub="packages ready" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }} className="mobile-stack">
+          <MetricCard label="Threats Total"   value={liveStats.threats_total || 0}     color="#ef4444" icon={ShieldAlert} sub={`${liveStats.threats_high || 0} high risk`} />
+          <MetricCard label="Takedowns Filed" value={liveStats.takedowns_filed || 0}   color="#7c3aed" icon={Zap}         sub="evidence built" />
+          <MetricCard label="Platforms"       value={7}                                color="#f59e0b" icon={Activity}     sub="monitored" />
+          <MetricCard label="Evidence Pkgs"   value={liveStats.evidence_packages || 0} color="#10b981" icon={FolderLock}   sub="packages ready" />
         </div>
       </div>
 
@@ -391,13 +502,8 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Activity feed */}
-        <div className="card p-5">
-          <h2 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#5c5880', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>
-            LIVE ACTIVITY
-          </h2>
-          <ActivityFeed events={events} />
-        </div>
+        {/* Activity timeline */}
+        <ActivityTimeline events={timeline} connected={connected} compact />
       </div>
 
       {/* Recent scans table */}
@@ -485,6 +591,12 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Live threat feed */}
+      <div style={{ marginTop: 20 }}>
+        <LiveThreatFeed threats={threats} onClearNew={clearNewFlags} />
+      </div>
+
     </div>
   )
 }

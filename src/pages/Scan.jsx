@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, CheckCircle, XCircle, RotateCcw } from 'lucide-react'
+import { Zap, CheckCircle, XCircle, RotateCcw, Wifi, WifiOff } from 'lucide-react'
 import { api } from '../api/client'
 
 const INTEL_FLAGS = {
@@ -51,18 +51,22 @@ function BootSequence({ onDone }) {
 
   useEffect(() => {
     let i = 0
+    let tid  // track latest pending timeout so cleanup can cancel it
     const tick = () => {
       if (i < BOOT_LINES.length) {
         setLines(prev => [...prev, BOOT_LINES[i]])
         i++
-        setTimeout(tick, 280)
+        tid = setTimeout(tick, 280)
       } else {
-        setTimeout(onDone, 300)
+        tid = setTimeout(onDone, 300)
       }
     }
-    setTimeout(tick, 120)
+    tid = setTimeout(tick, 120)
     const blink = setInterval(() => setCursor(c => !c), 500)
-    return () => clearInterval(blink)
+    // Cancel BOTH the blink interval and any in-flight timeout on cleanup.
+    // Without this, React StrictMode's double-invoke causes the boot sequence
+    // to call onDone twice → two concurrent /api/scan/full requests.
+    return () => { clearInterval(blink); clearTimeout(tid) }
   }, [onDone])
 
   return (
@@ -193,55 +197,246 @@ function ThreatRow({ threat, onTakedown }) {
   )
 }
 
+const POPULAR_BRANDS = [
+  { name: 'Nykaa',       domain: 'nykaa.com' },
+  { name: 'boAt',        domain: 'boat-lifestyle.com' },
+  { name: 'Mamaearth',   domain: 'mamaearth.in' },
+  { name: 'CRED',        domain: 'cred.club' },
+  { name: 'Zomato',      domain: 'zomato.com' },
+  { name: 'Swiggy',      domain: 'swiggy.com' },
+  { name: 'Meesho',      domain: 'meesho.com' },
+  { name: 'PhonePe',     domain: 'phonepe.com' },
+  { name: 'Paytm',       domain: 'paytm.com' },
+  { name: 'HDFC Bank',   domain: 'hdfcbank.com' },
+  { name: 'Myntra',      domain: 'myntra.com' },
+  { name: 'Flipkart',    domain: 'flipkart.com' },
+  { name: 'Ola',         domain: 'olacabs.com' },
+  { name: 'Uber',        domain: 'uber.com' },
+  { name: 'MakeMyTrip',  domain: 'makemytrip.com' },
+  { name: 'Wow Skin',    domain: 'wowskinscience.com' },
+  { name: 'mCaffeine',   domain: 'mcaffeine.com' },
+  { name: 'Noise',       domain: 'gonoise.com' },
+]
+
+function friendlyError(msg) {
+  if (!msg) return 'Something went wrong. Please try again.'
+  if (msg.includes('invalid_domain') || msg.includes('two labels'))
+    return 'Please enter a valid domain like nykaa.com'
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED'))
+    return 'Cannot connect to server. Is the backend running?'
+  if (msg.includes('401') || msg.includes('Unauthorized'))
+    return 'Session expired. Please log in again.'
+  if (msg.includes('429') || msg.includes('quota'))
+    return 'Scan limit reached. Upgrade your plan for more scans.'
+  if (msg.includes('500') || msg.includes('Server error'))
+    return 'Server error. Please try again in a moment.'
+  return msg
+}
+
+// ── Staged progress bar ───────────────────────────────────────────────────────
+// The scan has three observable stages. We infer the current stage from the
+// progress % so we don't need to change the backend event shape at all.
+const STAGES = [
+  { label: 'Queued',    pct: 0  },
+  { label: 'Probing',   pct: 15 },
+  { label: 'Analyzing', pct: 50 },
+  { label: 'Complete',  pct: 100 },
+]
+
+function ScanProgressBar({ progress, phase, connected, reconnectAttempt }) {
+  const done      = phase === 'done'
+  const failed    = phase === 'error'
+  const fillColor = failed ? '#ef4444' : done ? '#10b981' : '#7c3aed'
+
+  const activeStage = STAGES.reduce((acc, s) => (progress >= s.pct ? s : acc), STAGES[0])
+
+  return (
+    <div style={{ padding: '20px 24px' }}>
+      {/* Stage labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        {STAGES.map((s) => {
+          const past   = progress >= s.pct
+          const active = s.label === activeStage.label && !done && !failed
+          return (
+            <span key={s.label} style={{
+              fontSize: 10,
+              fontFamily: 'JetBrains Mono, monospace',
+              letterSpacing: '0.06em',
+              color: active ? '#a855f7' : past ? '#5c5880' : '#2a2a4a',
+              fontWeight: active ? 700 : 400,
+              transition: 'color 0.3s',
+            }}>
+              {active ? '● ' : past && !done ? '✓ ' : ''}{s.label.toUpperCase()}
+            </span>
+          )
+        })}
+      </div>
+
+      {/* Bar */}
+      <div style={{ position: 'relative', background: '#1a1a2e', borderRadius: 100, height: 8, overflow: 'hidden' }}>
+        {/* Animated shimmer stripe on the unfilled portion while scanning */}
+        {!done && !failed && (
+          <div className="progress-shimmer" style={{ position: 'absolute', inset: 0 }} />
+        )}
+        <div style={{
+          position:   'relative',
+          width:      `${progress}%`,
+          height:     '100%',
+          borderRadius: 100,
+          background: fillColor,
+          boxShadow:  done ? `0 0 12px ${fillColor}66` : undefined,
+          transition: 'width 0.5s cubic-bezier(0.4,0,0.2,1), background 0.3s',
+        }} />
+      </div>
+
+      {/* Status row */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8,
+      }}>
+        <span style={{
+          fontSize: 11, fontFamily: 'JetBrains Mono, monospace',
+          color: failed ? '#ef4444' : done ? '#10b981' : '#a855f7',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          {done    ? <><CheckCircle size={13} /> COMPLETE</>
+          : failed ? <><XCircle    size={13} /> FAILED</>
+          :          <>● {activeStage.label.toUpperCase()}…</>}
+        </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {reconnectAttempt > 0 && !done && (
+            <span style={{ fontSize: 10, color: '#f59e0b', fontFamily: 'JetBrains Mono, monospace' }}>
+              ↻ Reconnecting ({reconnectAttempt})
+            </span>
+          )}
+          <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#5c5880' }}>
+            {progress}%
+          </span>
+          {connected != null && (
+            <span title={connected ? 'WebSocket connected' : 'WebSocket disconnected'}
+              style={{ color: connected ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center' }}>
+              {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function Scan() {
-  const [brand, setBrand]       = useState('')
-  const [domain, setDomain]     = useState('')
-  const [maxPerm, setMaxPerm]   = useState(200)
-  const [platforms, setPlatforms] = useState(['instagram', 'facebook', 'x'])
-  const [phase, setPhase]       = useState('idle')
-  const [scanId, setScanId]     = useState(null)
-  const [logs, setLogs]         = useState([])
-  const [results, setResults]   = useState(null)
-  const [progress, setProgress] = useState(0)
-  const [statusMsg, setStatusMsg] = useState('')
-  const [err, setErr]           = useState(null)
-  const logsEndRef = useRef(null)
-  const esRef      = useRef(null)
+  const [brand, setBrand]             = useState('')
+  const [domain, setDomain]           = useState('')
+  const [domainAutoFilled, setDomainAutoFilled] = useState(false)
+  const [showSuggestions, setShowSuggestions]   = useState(false)
+  const [maxPerm, setMaxPerm]         = useState(200)
+  const [platforms, setPlatforms]     = useState(['instagram', 'facebook', 'x'])
+  const [phase, setPhase]                   = useState('idle')
+  const [scanId, setScanId]                 = useState(null)
+  const [logs, setLogs]                     = useState([])
+  const [results, setResults]               = useState(null)
+  const [progress, setProgress]             = useState(0)
+  const [statusMsg, setStatusMsg]           = useState('')
+  const [err, setErr]                       = useState(null)
+  const [wsConnected, setWsConnected]       = useState(null)   // null=not yet / true / false
+  const [reconnectAttempt, setReconnect]    = useState(0)
+  const logsEndRef     = useRef(null)
+  const wsCtrlRef      = useRef(null)   // WebSocket controller from api.streamScanWS
+  const brandRef       = useRef(null)
+  const scanStartedRef = useRef(false)  // guard against StrictMode double-invoke
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
-  useEffect(() => () => esRef.current?.close(), [])
+  // Cleanup WebSocket on unmount
+  useEffect(() => () => wsCtrlRef.current?.close(), [])
+
+  // Auto-fill domain when brand name changes
+  useEffect(() => {
+    if (brand && !domain) {
+      const auto = brand.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '') + '.com'
+      setDomain(auto)
+      setDomainAutoFilled(true)
+    }
+    if (!brand) {
+      if (domainAutoFilled) setDomain('')
+      setDomainAutoFilled(false)
+    }
+  }, [brand]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDomainChange = (e) => {
+    setDomain(e.target.value)
+    setDomainAutoFilled(false)
+  }
+
+  const suggestions = brand.length > 1
+    ? POPULAR_BRANDS.filter(b => b.name.toLowerCase().includes(brand.toLowerCase())).slice(0, 5)
+    : []
 
   const togglePlatform = (p) =>
     setPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])
 
   const launch = () => {
     if (!brand.trim()) return
+    // Close any existing stream before starting fresh
+    wsCtrlRef.current?.close()
+    wsCtrlRef.current = null
+    scanStartedRef.current = false  // reset guard so next boot sequence can fire
     setErr(null); setLogs([]); setResults(null); setProgress(0)
+    setWsConnected(null); setReconnect(0)
+    setShowSuggestions(false)
     setPhase('boot')
   }
 
-  const onBootDone = async () => {
+  const onBootDone = useCallback(async () => {
+    // StrictMode double-fire guard: ensure only the first invocation runs
+    if (scanStartedRef.current) return
+    scanStartedRef.current = true
     setPhase('scanning')
+    const finalDomain = domain.trim() ||
+      brand.trim().toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '') + '.com'
     try {
-      const res = await api.scanFull(brand.trim(), domain.trim() || undefined, maxPerm)
+      const res = await api.scanFull(brand.trim(), finalDomain, maxPerm)
       setScanId(res.scan_id)
-      esRef.current = api.streamScan(
-        res.scan_id,
-        (evt) => {
+
+      wsCtrlRef.current = api.streamScanWS(res.scan_id, {
+        onEvent: (evt) => {
           if (evt.message) setLogs(prev => [...prev, evt.message])
-          if (typeof evt.progress === 'number') setProgress(evt.progress)
+          if (evt.current != null && evt.total > 0)
+            setProgress(Math.round((evt.current / evt.total) * 100))
+          else if (typeof evt.progress === 'number')
+            setProgress(evt.progress)
           if (evt.status) setStatusMsg(evt.status)
         },
-        (done) => {
-          setPhase('done'); setProgress(100)
-          if (done.results) setResults(done.results)
-          else if (done.status === 'error') setErr('Scan stream closed with error.')
+
+        onDone: async (done) => {
+          setProgress(100)
+          setWsConnected(false)
+          if (done.status === 'error' || done.status === 'timeout') {
+            setPhase('error')
+            setErr(done.error || 'Scan failed on server. Check backend logs.')
+            return
+          }
+          if (done.results) {
+            setResults(done.results)
+            setPhase('done')
+          } else {
+            // Worker finished but results weren't bundled in the done event —
+            // fetch them from the threats endpoint.
+            try {
+              const threatData = await api.listThreats({ scan_id: res.scan_id, limit: 200 })
+              setResults({ threats: threatData.threats || [], threats_found: threatData.total || 0 })
+            } catch { /* silent */ }
+            setPhase('done')
+          }
         },
-      )
+
+        onConnectionChange: (ok) => setWsConnected(ok),
+        onReconnect: (attempt) => setReconnect(attempt),
+      })
     } catch (e) {
-      setErr(e.message); setPhase('error')
+      setErr(friendlyError(e.message)); setPhase('error')
     }
-  }
+  }, [brand, domain, maxPerm])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTakedown = async (threat) =>
     api.fileTakedown({
@@ -252,9 +447,15 @@ export default function Scan() {
     })
 
   const allThreats = results ? [
-    ...(results.domain_results || []).map(d => ({ ...d, type: 'domain' })),
-    ...(results.social_results || []).map(s => ({
+    // Full scan: results.domain_results = { threats: [...] }
+    ...((results.domain_results?.threats || results.domain_results || results.threats || [])).map(d => ({
+      ...d,
+      severity: d.severity || d.risk_level || (d.threat_engine?.risk_level) || 'low',
+      type: 'domain',
+    })),
+    ...((results.social_results?.threats || results.social_results || [])).map(s => ({
       ...s,
+      severity: s.severity || s.risk_level || 'low',
       type: s.platform === 'twitter' ? 'x' : (s.platform || 'social'),
     })),
   ] : []
@@ -294,24 +495,77 @@ export default function Scan() {
           </h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-            <div>
+            {/* Brand name with suggestions */}
+            <div style={{ position: 'relative' }}>
               <label style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
                 Brand Name *
               </label>
               <input
+                ref={brandRef}
                 className="input-cyber" placeholder="e.g. mamaearth"
-                value={brand} onChange={e => setBrand(e.target.value)}
+                value={brand}
+                onChange={e => { setBrand(e.target.value); setShowSuggestions(true) }}
                 onKeyDown={e => e.key === 'Enter' && launch()}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                autoComplete="off"
               />
+              {showSuggestions && suggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0,
+                  background: '#13131f', border: '1px solid #2a2a4a',
+                  borderRadius: 8, zIndex: 100, overflow: 'hidden', marginTop: 2,
+                }}>
+                  {suggestions.map(s => (
+                    <div
+                      key={s.name}
+                      onMouseDown={() => {
+                        setBrand(s.name)
+                        setDomain(s.domain)
+                        setDomainAutoFilled(false)
+                        setShowSuggestions(false)
+                      }}
+                      style={{
+                        padding: '10px 14px', cursor: 'pointer',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        fontSize: 13, color: '#f1f0ff', transition: 'background 0.1s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#1a1a2e'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <span>{s.name}</span>
+                      <span style={{ color: '#5c5880', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>{s.domain}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Domain with auto-fill indicator */}
             <div>
               <label style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                Root Domain (optional)
+                Domain <span style={{ color: '#3a3a5c', textTransform: 'lowercase', letterSpacing: 0 }}>(optional)</span>
               </label>
-              <input
-                className="input-cyber" placeholder="e.g. mamaearth.in"
-                value={domain} onChange={e => setDomain(e.target.value)}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  className="input-cyber" placeholder="nykaa.com (auto-filled)"
+                  value={domain}
+                  onChange={handleDomainChange}
+                  style={{ paddingRight: domainAutoFilled ? 60 : undefined }}
+                />
+                {domainAutoFilled && (
+                  <span style={{
+                    position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                    fontSize: 11, color: '#10b981', fontFamily: 'JetBrains Mono, monospace',
+                    pointerEvents: 'none',
+                  }}>
+                    auto ✓
+                  </span>
+                )}
+              </div>
+              <p style={{ fontSize: 11, color: '#3a3a5c', margin: '4px 0 0' }}>
+                Leave blank to auto-detect from brand name
+              </p>
             </div>
           </div>
 
@@ -364,7 +618,7 @@ export default function Scan() {
               background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
               color: '#ef4444', fontSize: 12,
             }}>
-              {err}
+              {friendlyError(err)}
             </div>
           )}
 
@@ -382,24 +636,21 @@ export default function Scan() {
       {/* Progress + logs */}
       {(phase === 'scanning' || phase === 'done') && (
         <>
-          <div className="card" style={{ padding: 24, marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: phase === 'done' ? '#10b981' : '#a855f7', display: 'flex', alignItems: 'center', gap: 8 }}>
-                {phase === 'done' ? <><CheckCircle size={14} /> SCAN COMPLETE</> : '● SCANNING…'}
-              </span>
-              <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: '#5c5880' }}>{progress}%</span>
-            </div>
-            <div style={{ background: '#1a1a2e', borderRadius: 100, height: 6, marginBottom: statusMsg ? 10 : 0 }}>
-              <div
-                className={phase === 'scanning' ? 'progress-shimmer' : ''}
-                style={{
-                  width: `${progress}%`, height: '100%', borderRadius: 100,
-                  background: phase === 'done' ? '#10b981' : undefined,
-                  transition: 'width 0.4s ease',
-                }}
-              />
-            </div>
-            {statusMsg && <div style={{ fontSize: 11, color: '#5c5880', fontFamily: 'JetBrains Mono, monospace' }}>{statusMsg}</div>}
+          <div className="card" style={{ marginBottom: 20, overflow: 'hidden' }}>
+            <ScanProgressBar
+              progress={progress}
+              phase={phase}
+              connected={wsConnected}
+              reconnectAttempt={reconnectAttempt}
+            />
+            {statusMsg && (
+              <div style={{
+                padding: '0 24px 14px',
+                fontSize: 11, color: '#5c5880', fontFamily: 'JetBrains Mono, monospace',
+              }}>
+                {statusMsg}
+              </div>
+            )}
           </div>
 
           <div className="card" style={{ padding: 20, marginBottom: 20 }}>
@@ -433,7 +684,7 @@ export default function Scan() {
                     {highCount > 0 && <span style={{ color: '#ef4444', marginLeft: 8 }}>{highCount} high/critical</span>}
                   </span>
                 </div>
-                <button className="btn-ghost" onClick={() => { setPhase('idle'); setLogs([]); setResults(null) }}>
+                <button className="btn-ghost" onClick={() => { wsCtrlRef.current?.close(); setPhase('idle'); setLogs([]); setResults(null); setWsConnected(null); setReconnect(0) }}>
                   <RotateCcw size={13} style={{ marginRight: 6 }} />New Scan
                 </button>
               </div>

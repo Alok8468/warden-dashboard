@@ -15,6 +15,8 @@ const STATS = [
 
 function friendlyError(err) {
   const msg = err.message || ''
+  if (msg.includes('too_many_attempts')) return 'Too many attempts. Please wait a moment and try again.'
+  if (msg.includes('missing_api_key'))   return 'Authentication error. Please refresh the page and try again.'
   if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('load failed')) {
     return 'Cannot connect to server. Make sure the backend is running on port 8000.'
   }
@@ -283,18 +285,23 @@ export default function Login() {
             <div style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
           </div>
 
-          {/* Google Sign-In */}
-          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError('Google sign-in failed. Please try again.')}
-              theme="filled_black"
-              size="large"
-              width="340"
-              text="signin_with_google"
-              shape="rectangular"
-            />
-          </div>
+          {/* Google Sign-In — only shown when OAuth is configured */}
+          {(() => {
+            const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+            return googleClientId && googleClientId.includes('apps.googleusercontent.com') ? (
+              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => setError('Google sign-in failed. Please try again.')}
+                  theme="filled_black"
+                  size="large"
+                  width="340"
+                  text="signin_with_google"
+                  shape="rectangular"
+                />
+              </div>
+            ) : null
+          })()}
 
           {/* Demo */}
           <button

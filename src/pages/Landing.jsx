@@ -405,6 +405,51 @@ export default function Landing() {
           <span style={{ color: '#3a3060' }}>Brand Protection Platform · Made in India</span>
         </div>
       </footer>
+
+      {/* WhatsApp floating CTA */}
+      <a
+        href="https://wa.me/919999999999?text=Hi%2C%20I%20want%20to%20protect%20my%20brand%20with%20WARDEN.AI"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Chat with us on WhatsApp"
+        style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9990,
+          width: 58, height: 58, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #25d366, #128c7e)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 24px rgba(37,211,102,0.4)',
+          textDecoration: 'none',
+          transition: 'transform 0.2s, box-shadow 0.2s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'scale(1.12)'
+          e.currentTarget.style.boxShadow = '0 6px 32px rgba(37,211,102,0.6)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'scale(1)'
+          e.currentTarget.style.boxShadow = '0 4px 24px rgba(37,211,102,0.4)'
+        }}
+      >
+        {/* WhatsApp SVG icon */}
+        <svg width={30} height={30} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 2C8.268 2 2 8.268 2 16c0 2.486.67 4.816 1.84 6.82L2 30l7.39-1.81A13.938 13.938 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z" fill="white"/>
+          <path d="M22.2 19.6c-.3-.15-1.77-.87-2.04-.97-.28-.1-.48-.15-.68.15-.2.3-.78.97-.96 1.17-.18.2-.36.23-.66.08-.3-.15-1.26-.46-2.4-1.47-.89-.79-1.49-1.76-1.66-2.06-.18-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.68-1.63-.93-2.23-.24-.58-.49-.5-.68-.51-.17-.01-.37-.01-.57-.01-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47s1.06 2.86 1.21 3.06c.15.2 2.08 3.18 5.04 4.46.7.3 1.25.49 1.68.62.71.22 1.35.19 1.86.12.57-.09 1.77-.72 2.02-1.41.25-.7.25-1.3.17-1.42-.07-.11-.27-.18-.57-.33z" fill="#25d366"/>
+        </svg>
+
+        {/* Pulse ring */}
+        <span style={{
+          position: 'absolute', inset: -4, borderRadius: '50%',
+          border: '2px solid rgba(37,211,102,0.5)',
+          animation: 'waPulse 2s infinite',
+        }} />
+        <style>{`
+          @keyframes waPulse {
+            0%   { transform: scale(1);   opacity: 0.8; }
+            70%  { transform: scale(1.3); opacity: 0; }
+            100% { transform: scale(1.3); opacity: 0; }
+          }
+        `}</style>
+      </a>
     </div>
   )
 }

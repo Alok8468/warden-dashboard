@@ -269,10 +269,28 @@ export default function Reports() {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>Loading reports…</div>
         ) : reports.length === 0 ? (
-          <div style={{ padding: 60, textAlign: 'center' }}>
-            <FileBarChart size={40} color="#5c5880" style={{ margin: '0 auto 14px' }} />
-            <div style={{ color: '#5c5880', fontSize: 13 }}>No reports generated yet</div>
-            <div style={{ color: '#5c5880', fontSize: 12, marginTop: 4 }}>Select a brand and click Generate Report above</div>
+          <div style={{ padding: '56px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 14 }}>📊</div>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 15, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+              No reports generated yet
+            </div>
+            <div style={{ color: '#5c5880', fontSize: 13, marginBottom: 20, maxWidth: 360, margin: '0 auto 20px' }}>
+              Generate a PDF or text report for any brand — includes threat summary,
+              takedown log, and evidence packages.
+            </div>
+            <button
+              onClick={generate}
+              disabled={generating || !brand.trim()}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                border: 'none', color: '#fff', cursor: brand.trim() ? 'pointer' : 'not-allowed',
+                opacity: brand.trim() ? 1 : 0.5,
+              }}
+            >
+              {generating ? '⏳ Generating…' : '→ Generate First Report'}
+            </button>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

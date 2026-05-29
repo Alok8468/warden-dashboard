@@ -412,9 +412,44 @@ select.input-cyber { appearance: none; cursor: pointer; }
 @media (max-width: 767px) {
   .mobile-bottom-nav { display: flex !important; }
   main { padding-bottom: 72px !important; }
+
+  /* Table responsiveness */
   .cyber-table th, .cyber-table td { padding: 8px 10px; font-size: 11px; }
   .card { border-radius: 8px; }
+
+  /* Stack all grids on mobile */
   .mobile-stack { grid-template-columns: 1fr !important; }
+
+  /* Page padding */
+  .page-enter { padding: 16px !important; }
+
+  /* Collapse header actions */
+  .mobile-header-actions { flex-wrap: wrap; gap: 8px !important; }
+
+  /* Shrink buttons */
+  .btn-primary, .btn-outline, .btn-gold { padding: 8px 14px; font-size: 12px; }
+
+  /* Filters wrap */
+  .filter-bar { flex-wrap: wrap !important; gap: 8px !important; }
+
+  /* Score ring — smaller */
+  canvas { max-width: 200px; }
+
+  /* Modal fullscreen on mobile */
+  .mobile-modal { padding: 0 !important; }
+  .mobile-modal > div { border-radius: 0 !important; max-width: 100% !important; max-height: 100vh !important; overflow-y: auto !important; }
+
+  /* Top grid on dashboard */
+  .dashboard-top-grid { grid-template-columns: 1fr !important; }
+
+  /* Metric cards grid */
+  .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Tables that hide on mobile */
+  .hide-mobile { display: none !important; }
+
+  /* Font size tweaks */
+  h1 { font-size: 16px !important; }
 }
 @media (min-width: 768px) {
   .mobile-bottom-nav { display: none !important; }

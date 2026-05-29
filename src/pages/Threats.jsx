@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
-import { ShieldAlert, X as XIcon } from 'lucide-react'
+import { ShieldAlert, X as XIcon, ScanLine } from 'lucide-react'
 import { api } from '../api/client'
+import { SkeletonTable } from '../components/Skeleton'
 
 function allThreatsFromScans(scans) {
   return scans.flatMap(s => {
@@ -80,119 +81,415 @@ function IntelBadges({ flags = [] }) {
   )
 }
 
+// ── 4-Tab Threat Detail Modal ─────────────────────────────────────────────────
 function ThreatModal({ threat, brand, onClose }) {
+  const [tab,    setTab]    = useState('overview')
   const [filing, setFiling] = useState(false)
-  const [filed, setFiled]   = useState(false)
+  const [filed,  setFiled]  = useState(false)
+  const [fpDone, setFpDone] = useState(false)
 
   const fileTakedown = async () => {
     setFiling(true)
     try {
       await api.fileTakedown({
         threat_type: threat.type === 'twitter' ? 'x' : threat.type,
-        target: threat.domain || threat.handle || threat.username,
-        platform: threat.platform === 'twitter' ? 'x' : (threat.platform || null),
-        brand: brand || threat._scan_target || '',
-        scan_id: threat._scan_id || null,
+        target:      threat.domain || threat.handle || threat.username,
+        platform:    threat.platform === 'twitter' ? 'x' : (threat.platform || null),
+        brand:       brand || threat._scan_target || '',
+        scan_id:     threat._scan_id || null,
         threat_score: threat.threat_score,
-        flags: threat.flags ?? [],
+        flags:       threat.flags ?? [],
       })
       setFiled(true)
     } catch { /* silent */ } finally { setFiling(false) }
   }
 
-  const url = threat.domain || threat.profile_url || threat.url || ''
-  // Replace twitter.com with x.com
+  const url        = threat.domain || threat.profile_url || threat.url || ''
   const displayUrl = url.replace('twitter.com', 'x.com')
+  const score      = threat.threat_score || 0
+  const scoreColor = score >= 8 ? '#ef4444' : score >= 5 ? '#f59e0b' : '#10b981'
+
+  const TABS = [
+    { id: 'overview',  label: 'Overview'    },
+    { id: 'detectors', label: 'Detectors'   },
+    { id: 'evidence',  label: 'Evidence'    },
+    { id: 'timeline',  label: 'Timeline'    },
+  ]
+
+  const detectors = threat.detector_results || threat.detectors || []
+  const evidence  = threat.evidence || {}
+  const aiTriage  = threat.ai_triage
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(13,13,20,0.88)',
+      position: 'fixed', inset: 0, background: 'rgba(13,13,20,0.9)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
     }} onClick={onClose}>
-      <div className="card" style={{ width: '100%', maxWidth: 600, padding: 0, overflow: 'hidden' }}
-        onClick={e => e.stopPropagation()}>
+      <div
+        className="card"
+        style={{ width: '100%', maxWidth: 680, padding: 0, overflow: 'hidden', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Modal header */}
         <div style={{
-          padding: '20px 24px', borderBottom: '1px solid #2a2a4a',
+          padding: '18px 24px', borderBottom: '1px solid #2a2a4a',
           display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+          flexShrink: 0,
         }}>
-          <div>
-            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#a855f7', marginBottom: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontFamily: 'JetBrains Mono, monospace', fontSize: 14, color: '#a855f7',
+              marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
               {threat.domain || `@${threat.handle || threat.username}` || '—'}
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <SevBadge sev={threat.severity} />
               <span className="badge badge-purple" style={{ fontSize: 10 }}>
                 {threat.type === 'twitter' ? 'x' : threat.type}
               </span>
+              {aiTriage && (
+                <span style={{
+                  padding: '2px 9px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                  background: 'rgba(124,58,237,0.15)', color: '#a855f7',
+                  border: '1px solid rgba(124,58,237,0.3)',
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}>
+                  🤖 AI: {aiTriage.action || aiTriage.priority || 'TRIAGED'} ({Math.round((aiTriage.confidence || 0) * 100)}%)
+                </span>
+              )}
             </div>
           </div>
-          <button className="btn-ghost" onClick={onClose} style={{ padding: '4px 10px', fontSize: 18, lineHeight: 1 }}>
-            <XIcon size={16} />
-          </button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#5c5880', cursor: 'pointer', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
 
-        <div style={{ padding: 24 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-            {[
-              ['IP', threat.ip],
-              ['Registrar', threat.registrar],
-              ['HTTP Status', threat.http_status],
-              ['Age', threat.age_days != null ? `${threat.age_days} days` : null],
-              ['Platform', threat.platform === 'twitter' ? 'X' : threat.platform],
-              ['Followers', threat.followers_raw],
-              ['Verified', threat.verified != null ? (threat.verified ? 'Yes' : 'No') : null],
-              ['Safe Browsing', threat.safe_browsing_flagged != null ? (threat.safe_browsing_flagged ? '⚠ Flagged' : 'Clean') : null],
-              ['Title', threat.title?.slice(0, 80)],
-              ['Bio', threat.bio?.slice(0, 80)],
-            ].filter(([, v]) => v != null).map(([k, v]) => (
-              <div key={k}>
-                <div style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>{k}</div>
-                <div style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: '#f1f0ff' }}>{v}</div>
-              </div>
-            ))}
-          </div>
+        {/* Tab nav */}
+        <div style={{
+          display: 'flex', gap: 0, borderBottom: '1px solid #2a2a4a',
+          background: '#0d0d18', flexShrink: 0,
+        }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              flex: 1, padding: '10px 8px', border: 'none', cursor: 'pointer', fontSize: 11,
+              fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.06em',
+              background: tab === t.id ? 'rgba(124,58,237,0.12)' : 'transparent',
+              color: tab === t.id ? '#a855f7' : '#5c5880',
+              borderBottom: `2px solid ${tab === t.id ? '#7c3aed' : 'transparent'}`,
+              transition: 'all 0.15s',
+            }}>
+              {t.label.toUpperCase()}
+            </button>
+          ))}
+        </div>
 
-          {(threat.flags || []).length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 10, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Flags</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <IntelBadges flags={threat.flags} />
-                {threat.flags.filter(f => !INTEL_FLAGS[f]).map(f => (
-                  <span key={f} style={{
-                    padding: '3px 10px', borderRadius: 4, fontSize: 11,
-                    fontFamily: 'JetBrains Mono, monospace',
-                    background: 'rgba(245,158,11,0.1)', color: '#f59e0b',
-                    border: '1px solid rgba(245,158,11,0.2)',
-                  }}>
-                    {f.replace(/_/g, ' ')}
-                  </span>
-                ))}
+        {/* Tab body */}
+        <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+
+          {/* TAB 1 — OVERVIEW */}
+          {tab === 'overview' && (
+            <div>
+              {/* Score ring + quick stats */}
+              <div style={{ display: 'flex', gap: 24, marginBottom: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                {/* Score ring */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                  <svg width={90} height={90} viewBox="0 0 90 90">
+                    <circle cx={45} cy={45} r={38} fill="none" stroke="#1a1a2e" strokeWidth={8} />
+                    <circle cx={45} cy={45} r={38} fill="none" stroke={scoreColor} strokeWidth={8}
+                      strokeDasharray={2 * Math.PI * 38}
+                      strokeDashoffset={2 * Math.PI * 38 * (1 - score / 10)}
+                      strokeLinecap="round" transform="rotate(-90 45 45)"
+                      style={{ filter: `drop-shadow(0 0 4px ${scoreColor})` }}
+                    />
+                    <text x={45} y={49} textAnchor="middle" fill={scoreColor} fontSize={18} fontWeight={700} fontFamily="JetBrains Mono, monospace">
+                      {score.toFixed(1)}
+                    </text>
+                    <text x={45} y={63} textAnchor="middle" fill="#5c5880" fontSize={8} fontFamily="JetBrains Mono, monospace">/10</text>
+                  </svg>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', fontFamily: 'JetBrains Mono, monospace' }}>THREAT SCORE</div>
+                </div>
+
+                {/* Key fields */}
+                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+                  {[
+                    ['IP Address',    threat.ip],
+                    ['Registrar',     threat.registrar],
+                    ['HTTP Status',   threat.http_status],
+                    ['Domain Age',    threat.age_days != null ? `${threat.age_days}d` : null],
+                    ['Platform',      threat.platform === 'twitter' ? 'X (Twitter)' : threat.platform],
+                    ['Followers',     threat.followers_raw],
+                    ['Verified',      threat.verified != null ? (threat.verified ? '✓ Yes' : '✗ No') : null],
+                    ['Safe Browsing', threat.safe_browsing_flagged != null ? (threat.safe_browsing_flagged ? '⚠ Flagged' : '✓ Clean') : null],
+                    ['Title',         threat.title?.slice(0, 60)],
+                    ['Bio',           threat.bio?.slice(0, 60)],
+                    ['Scan',          threat._scan_target],
+                    ['Detected',      threat._scan_date ? new Date(threat._scan_date).toLocaleDateString('en-IN') : null],
+                  ].filter(([, v]) => v != null).map(([k, v]) => (
+                    <div key={k}>
+                      <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>{k}</div>
+                      <div style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: '#f1f0ff' }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* Flags */}
+              {(threat.flags || []).length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Detection Flags</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <IntelBadges flags={threat.flags} />
+                    {(threat.flags || []).filter(f => !INTEL_FLAGS[f]).map(f => (
+                      <span key={f} style={{
+                        padding: '3px 10px', borderRadius: 4, fontSize: 10,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        background: 'rgba(245,158,11,0.1)', color: '#f59e0b',
+                        border: '1px solid rgba(245,158,11,0.2)',
+                      }}>
+                        {f.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI triage detail */}
+              {aiTriage && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 8, marginBottom: 16,
+                  background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)',
+                }}>
+                  <div style={{ fontSize: 10, color: '#a855f7', fontFamily: 'JetBrains Mono, monospace', marginBottom: 6, letterSpacing: '0.08em' }}>
+                    🤖 AI TRIAGE ANALYSIS
+                  </div>
+                  <div style={{ fontSize: 12, color: '#f1f0ff', marginBottom: 4 }}>
+                    <strong>Action:</strong> {aiTriage.action || aiTriage.priority || 'Review'}
+                  </div>
+                  {aiTriage.reason && (
+                    <div style={{ fontSize: 12, color: '#a8a4c8' }}>{aiTriage.reason}</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            {filed
-              ? <span style={{ color: '#10b981', fontSize: 13 }}>✓ Takedown filed</span>
-              : <button
-                  onClick={fileTakedown} disabled={filing}
-                  style={{
-                    padding: '9px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                    color: '#1a0a00', fontWeight: 700, fontSize: 13,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    opacity: filing ? 0.7 : 1, transition: 'all 0.15s',
+          {/* TAB 2 — DETECTOR BREAKDOWN */}
+          {tab === 'detectors' && (
+            <div>
+              {detectors.length === 0 ? (
+                <div style={{ padding: '32px 0', textAlign: 'center', color: '#5c5880', fontSize: 13 }}>
+                  No individual detector data available for this threat.
+                  <div style={{ marginTop: 8, fontSize: 12 }}>Detector breakdown is captured on full scans.</div>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #2a2a4a' }}>
+                      {['Detector', 'Score', 'Weight', 'Contribution', 'Flags'].map(h => (
+                        <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 9, color: '#5c5880', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detectors.map((d, i) => {
+                      const ds    = d.score ?? d.confidence ?? 0
+                      const dw    = d.weight ?? 1
+                      const color = ds >= 0.8 ? '#ef4444' : ds >= 0.5 ? '#f59e0b' : '#10b981'
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(42,42,74,0.4)' }}>
+                          <td style={{ padding: '10px', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#f1f0ff' }}>
+                            {d.detector || d.name}
+                          </td>
+                          <td style={{ padding: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 60, height: 5, background: '#1a1a2e', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${ds * 100}%`, background: color, borderRadius: 2 }} />
+                              </div>
+                              <span style={{ fontSize: 11, color, fontFamily: 'JetBrains Mono, monospace' }}>{(ds * 10).toFixed(1)}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px', fontSize: 11, color: '#5c5880', fontFamily: 'JetBrains Mono, monospace' }}>
+                            ×{dw}
+                          </td>
+                          <td style={{ padding: '10px', fontSize: 11, fontWeight: 700, color, fontFamily: 'JetBrains Mono, monospace' }}>
+                            {(ds * dw * 10).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '10px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                              {(d.reasons || d.flags || []).slice(0, 3).map((f, fi) => (
+                                <span key={fi} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                                  {String(f).replace(/_/g, ' ').slice(0, 20)}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3 — EVIDENCE */}
+          {tab === 'evidence' && (
+            <div>
+              {/* Screenshot */}
+              {(threat.screenshot_url || evidence.screenshot) && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Screenshot</div>
+                  <img
+                    src={threat.screenshot_url || evidence.screenshot}
+                    alt="threat screenshot"
+                    style={{ width: '100%', borderRadius: 8, border: '1px solid #2a2a4a', maxHeight: 240, objectFit: 'cover' }}
+                    onError={e => { e.target.style.display = 'none' }}
+                  />
+                </div>
+              )}
+
+              {/* WHOIS data */}
+              {(evidence.whois || threat.whois) && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>WHOIS Data</div>
+                  <pre style={{
+                    background: '#08080f', borderRadius: 8, padding: '12px 14px',
+                    fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#a8a4c8',
+                    overflowX: 'auto', border: '1px solid #1a1a2e', maxHeight: 160, overflowY: 'auto',
                   }}>
-                  ⚡ {filing ? 'Filing…' : 'File Takedown'}
-                </button>
-            }
-            {displayUrl && (
-              <a href={displayUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost"
-                style={{ textDecoration: 'none' }}>
-                Open ↗
-              </a>
-            )}
-          </div>
+                    {typeof evidence.whois === 'object' ? JSON.stringify(evidence.whois, null, 2) : evidence.whois || threat.whois}
+                  </pre>
+                </div>
+              )}
+
+              {/* DNS records */}
+              {(evidence.dns || threat.dns_records) && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>DNS Records</div>
+                  <pre style={{
+                    background: '#08080f', borderRadius: 8, padding: '12px 14px',
+                    fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#10b981',
+                    overflowX: 'auto', border: '1px solid #1a1a2e',
+                  }}>
+                    {typeof (evidence.dns || threat.dns_records) === 'object'
+                      ? JSON.stringify(evidence.dns || threat.dns_records, null, 2)
+                      : evidence.dns || threat.dns_records}
+                  </pre>
+                </div>
+              )}
+
+              {/* HTTP headers */}
+              {evidence.http_headers && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: '#5c5880', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>HTTP Headers</div>
+                  <pre style={{
+                    background: '#08080f', borderRadius: 8, padding: '12px 14px',
+                    fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#a8a4c8',
+                    overflowX: 'auto', border: '1px solid #1a1a2e', maxHeight: 160, overflowY: 'auto',
+                  }}>
+                    {typeof evidence.http_headers === 'object' ? JSON.stringify(evidence.http_headers, null, 2) : evidence.http_headers}
+                  </pre>
+                </div>
+              )}
+
+              {!threat.screenshot_url && !evidence.screenshot && !evidence.whois && !threat.whois && !evidence.dns && !threat.dns_records && (
+                <div style={{ padding: '32px 0', textAlign: 'center', color: '#5c5880', fontSize: 13 }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>📁</div>
+                  No evidence data captured for this threat.
+                  <div style={{ marginTop: 8, fontSize: 12 }}>Evidence is collected during full domain scans.</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4 — TIMELINE */}
+          {tab === 'timeline' && (
+            <div>
+              {(() => {
+                const events = [
+                  { icon: '🔍', label: 'Detected',       color: '#ef4444', date: threat._scan_date || threat.discovered_at,  done: true },
+                  { icon: '🔔', label: 'Alert Sent',      color: '#f59e0b', date: threat.alerted_at,                          done: !!threat.alerted_at },
+                  { icon: '⚡', label: 'Takedown Filed',  color: '#7c3aed', date: threat.takedown_filed_at,                    done: !!threat.takedown_filed_at || filed },
+                  { icon: '✅', label: 'Resolved',        color: '#10b981', date: threat.resolved_at,                          done: !!threat.resolved_at },
+                ]
+                return (
+                  <div style={{ position: 'relative', paddingLeft: 40 }}>
+                    {/* Vertical line */}
+                    <div style={{ position: 'absolute', left: 15, top: 16, bottom: 16, width: 2, background: '#2a2a4a' }} />
+
+                    {events.map((ev, i) => (
+                      <div key={i} style={{ position: 'relative', marginBottom: 28 }}>
+                        {/* Dot */}
+                        <div style={{
+                          position: 'absolute', left: -31, width: 14, height: 14, borderRadius: '50%',
+                          background: ev.done ? ev.color : '#2a2a4a',
+                          border: `2px solid ${ev.done ? ev.color : '#3a3a6a'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          boxShadow: ev.done ? `0 0 8px ${ev.color}60` : 'none',
+                          top: 3,
+                        }} />
+
+                        <div style={{ opacity: ev.done ? 1 : 0.4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                            <span style={{ fontSize: 14 }}>{ev.icon}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: ev.done ? '#f1f0ff' : '#5c5880' }}>{ev.label}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: ev.done ? '#5c5880' : '#3a3060', fontFamily: 'JetBrains Mono, monospace' }}>
+                            {ev.date
+                              ? new Date(ev.date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                              : ev.done ? 'Completed' : 'Pending'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+        </div>
+
+        {/* Action bar */}
+        <div style={{
+          padding: '14px 24px', borderTop: '1px solid #2a2a4a',
+          display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0,
+          background: '#0d0d18',
+        }}>
+          {filed ? (
+            <span style={{ color: '#10b981', fontSize: 13, fontWeight: 600 }}>✓ Takedown filed successfully</span>
+          ) : (
+            <button
+              onClick={fileTakedown} disabled={filing}
+              style={{
+                padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#1a0a00', fontWeight: 700, fontSize: 12,
+                display: 'flex', alignItems: 'center', gap: 6,
+                opacity: filing ? 0.7 : 1,
+              }}
+            >
+              ⚡ {filing ? 'Filing…' : 'File Takedown'}
+            </button>
+          )}
+
+          {!fpDone && (
+            <button
+              onClick={() => setFpDone(true)}
+              className="btn-outline" style={{ fontSize: 12 }}
+            >
+              ✓ Mark False Positive
+            </button>
+          )}
+          {fpDone && <span style={{ color: '#5c5880', fontSize: 12 }}>Marked as false positive</span>}
+
+          {displayUrl && (
+            <a href={displayUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ textDecoration: 'none', fontSize: 12 }}>
+              Open ↗
+            </a>
+          )}
+
+          <button onClick={onClose} className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }}>
+            <XIcon size={13} /> Close
+          </button>
         </div>
       </div>
     </div>
@@ -322,10 +619,48 @@ export default function Threats() {
       {/* Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>Loading threats…</div>
+          <SkeletonTable rows={8} cols={7} />
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>
-            {threats.length === 0 ? 'No threats found — run a scan first' : 'No threats match current filters'}
+          <div style={{ padding: '56px 24px', textAlign: 'center' }}>
+            {threats.length === 0 ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🛡️</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+                  No threats detected yet
+                </div>
+                <div style={{ color: '#5c5880', fontSize: 13, marginBottom: 24, maxWidth: 380, margin: '0 auto 24px' }}>
+                  Your brand is either threat-free or you haven't run a scan yet.
+                  Start a scan to monitor for lookalike domains, fake social accounts, and more.
+                </div>
+                <a href="/scan" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                  color: '#fff', textDecoration: 'none',
+                }}>
+                  <ScanLine size={14} /> Run First Scan
+                </a>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+                  No threats match your filters
+                </div>
+                <div style={{ color: '#5c5880', fontSize: 13 }}>
+                  Try adjusting the severity filter or clearing your search query.
+                </div>
+                <button
+                  onClick={() => { setSeverity('all'); setTypeFilter('all'); setSearch('') }}
+                  style={{
+                    marginTop: 16, padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
+                    background: 'transparent', border: '1px solid #2a2a4a', color: '#a8a4c8', fontSize: 12,
+                  }}
+                >
+                  Clear all filters
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

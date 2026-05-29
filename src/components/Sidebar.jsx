@@ -18,8 +18,8 @@ const NAV = [
   { to: '/reports',   icon: FileBarChart,    label: 'Reports',    key: 'reports' },
   { to: '/alerts',    icon: Bell,            label: 'Alerts',     key: 'alerts' },
   { to: '/scheduler', icon: ClockIcon,       label: 'Scheduler',  key: 'scheduler' },
+  { to: '/billing',   icon: CreditCard,      label: 'Billing',    key: 'billing' },
   { to: '/settings',  icon: Settings,        label: 'Settings',   key: 'settings' },
-  { to: '/pricing',   icon: CreditCard,      label: 'Pricing',    key: 'pricing' },
 ]
 
 function Clock() {

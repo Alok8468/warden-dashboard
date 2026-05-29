@@ -77,9 +77,16 @@ export default function Scheduler() {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#5c5880' }}>Loading…</div>
         ) : jobs.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <Clock size={36} color="#5c5880" style={{ margin: '0 auto 14px' }} />
-            <div style={{ color: '#5c5880', fontSize: 13 }}>No schedules yet — add one below</div>
+          <div style={{ padding: '52px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 14 }}>⏰</div>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 15, fontWeight: 700, color: '#f1f0ff', marginBottom: 8 }}>
+              No scheduled scans yet
+            </div>
+            <div style={{ color: '#5c5880', fontSize: 13, marginBottom: 20, maxWidth: 360, margin: '0 auto 20px' }}>
+              Automate your brand monitoring with recurring scans.
+              Schedule daily or weekly scans and get alerts on new threats.
+            </div>
+            <div style={{ fontSize: 12, color: '#5c5880' }}>Use the form below to add your first schedule ↓</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
